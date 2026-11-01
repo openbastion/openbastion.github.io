@@ -22,6 +22,10 @@ Le conteneur exécute `npm ci` à chaque démarrage (`node_modules` sur un volum
 
 Les deux sortent en code 1 avec la liste `fichier:ligne — problème`. Le job lance ensuite `npm run docs:build`, dont l'échec sur lien mort reste la seconde barrière. Les actions sont épinglées par empreinte (ADR-0047).
 
+## Publication (GitHub Pages)
+
+Le job `deploiement` de `.github/workflows/docs.yml` construit le site et le publie sur GitHub Pages à chaque `push` sur `main` (les `pull_request` ne font que vérifier). Prérequis à un seul endroit, dans les réglages du dépôt : **Settings → Pages → Source = « GitHub Actions »**. Tant que la source reste « Deploy from a branch » (`main`, racine), Pages construit avec Jekyll et sert `README.md` comme page d'accueil : le site VitePress n'apparaît jamais, quels que soient les commits.
+
 ## Pièges rencontrés
 
 - VitePress attend `index.md` comme page de dossier, la documentation amont utilise `README.md`. `scripts/sync-docs.sh` renomme les fichiers et réécrit les liens ; sans cela 33 liens de section cassent.
