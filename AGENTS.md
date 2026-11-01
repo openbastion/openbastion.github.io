@@ -27,4 +27,6 @@ Le conteneur exécute `npm ci` à chaque démarrage (`node_modules` sur un volum
 
 ## Synchroniser
 
-`./scripts/sync-docs.sh` reprend `docs/` du dépôt amont, applique les transformations (index, liens sortants vers GitHub) et remplace les sections ; `docs/index.md` et `docs/.vitepress/` sont conservés.
+`./scripts/sync-docs.sh` reprend `docs/` du dépôt amont, applique les transformations (index, liens sortants vers GitHub) et remplace les sections ; `docs/index.md`, `docs/public/` et `docs/.vitepress/` sont conservés. `--dry-run` simule, `--force` écrase les retouches locales.
+
+Le script ne remplace plus les pages en aveugle : `scripts/sync-docs.manifest` (empreintes de la dernière synchronisation) est l'état de référence et doit être commité avec le résultat. Une retouche locale seule est conservée ; retouche locale et évolution amont donnent une fusion `git merge-file` sur la version du commit qui a enregistré le manifeste, avec marqueurs de conflit et code retour 1 en cas de chevauchement. Corollaire : si le manifeste est modifié sans être commité, la base de fusion est introuvable et la page part en conflit — committer la synchronisation avant de retoucher une page.
