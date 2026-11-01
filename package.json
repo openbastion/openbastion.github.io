@@ -6,7 +6,10 @@
   "scripts": {
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
-    "docs:preview": "vitepress preview docs --port 3000 --host 0.0.0.0"
+    "docs:preview": "vitepress preview docs --port 3000 --host 0.0.0.0",
+    "docs:check": "npm run docs:check:markdown && npm run docs:check:links",
+    "docs:check:markdown": "node scripts/check-docs-markdown.mjs",
+    "docs:check:links": "node scripts/check-docs-links.mjs"
   },
   "devDependencies": {
     "mermaid": "^11.4.1",

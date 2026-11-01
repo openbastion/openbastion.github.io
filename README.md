@@ -2,7 +2,7 @@
 
 Site de documentation publique [OpenBastion](https://github.com/openbastion/openbastion) : PAM open source, cloud-native, écrit en Go.
 
-Le contenu des pages provient du dossier `docs/` du dépôt principal et est rendu par [VitePress](https://vitepress.dev) (Markdown, recherche locale, diagrammes Mermaid).
+Le contenu des pages provient du dossier `docs/` du dépôt principal et est rendu par [VitePress](https://vitepress.dev) (Markdown, recherche DocSearch ou locale, diagrammes Mermaid).
 
 ## Lancer le site
 
@@ -30,6 +30,42 @@ npm run docs:build    # sortie statique dans docs/.vitepress/dist
 | `docs/documentation.md` | Index de la documentation, par public et par section |
 | `docs/*/` | Documentation du projet, copiée depuis `openbastion/openbastion` |
 | `docs/.vitepress/` | Configuration du site : navigation, recherche, thème |
+
+## Vérifier
+
+```bash
+npm run docs:check       # conformité Markdown + liens internes
+npm run docs:build       # construction statique, échoue aussi sur un lien mort
+```
+
+`npm run docs:check` enchaîne deux contrôles, également exécutés par la CI
+(`.github/workflows/docs.yml`) sur chaque `push` vers `main` et chaque
+`pull_request` :
+
+- `docs:check:markdown` (`scripts/check-docs-markdown.mjs`) : front matter fermé et
+  correctement cité, blocs de code fermés, un seul titre de niveau 1 (il alimente la
+  navigation), pas de saut de niveau, pas de marqueur de conflit Git, pas d’espace en
+  fin de ligne ;
+- `docs:check:links` (`scripts/check-docs-links.mjs`) : chaque lien interne mène à une
+  page ou un fichier existant, et chaque fragment `#ancre` à un titre présent. Les
+  liens externes ne sont pas ouverts.
+
+## Recherche
+
+La recherche est fournie par [DocSearch](https://docsearch.algolia.com/) (Algolia)
+dès que les trois variables d’environnement sont présentes au démarrage du serveur
+(ou de la construction) :
+
+| Variable | Rôle |
+|---|---|
+| `ALGOLIA_APP_ID` | Identifiant de l’application DocSearch |
+| `ALGOLIA_API_KEY` | Clé de recherche publique, en lecture seule |
+| `ALGOLIA_INDEX_NAME` | Nom de l’index de la documentation |
+
+Dans l’aperçu Base44, ces valeurs sont des secrets de l’application, livrés par la
+plateforme dans `/run/base44/app.env` et lus par Compose. Si l’une des trois manque,
+`docs/.vitepress/config.mts` retombe sur la recherche locale de VitePress : le site
+reste utilisable, y compris en intégration continue.
 
 ## Synchroniser avec le dépôt principal
 

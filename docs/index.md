@@ -27,6 +27,24 @@ features:
     details: Le dépôt contient la tranche qui prouve l’invariant — SSH, SFTP et SCP de bout en bout. Le reste du périmètre est séquencé sur la feuille de route, pas encore construit.
 ---
 
+## Parcourir la documentation
+
+Chaque section correspond à un dossier de `docs/` dans le dépôt principal : la page d’index d’une section annonce ce qu’elle contient et ce qui reste à écrire.
+
+| Section | Ce que vous y trouverez |
+|---|---|
+| [Documentation](/documentation) | L’index complet : entrée par public, entrée par section, correspondance avec les anciens documents numérotés |
+| [Architecture](/architecture/) | Vue d’ensemble, principes et invariant, diagrammes C4 (contexte, conteneurs, composants), déploiement, modèle de données |
+| [Sécurité](/security/) | Modèle de menace, sécurité par domaine (transport, identité, secrets, audit, proxy, durcissement), limites connues |
+| [Déploiement](/deployment/) | Prérequis, installation, configuration, mTLS interne, haute disponibilité, sauvegardes, reprise d’activité, mise à jour, dépannage |
+| [Administration](/administration/) | Comptes privilégiés, politiques d’accès, workflows d’approbation et break-glass, enregistrement des sessions, fédération d’identité, audit |
+| [Guide utilisateur](/user-guide/) | Le parcours de l’opérateur, de la connexion à la consultation de ses sessions |
+| [API](/api/) | Conventions, spécification OpenAPI de l’API publique, contrats entre services |
+| [Décisions d’architecture](/adr/) | Les ADR, un fichier par décision : contexte, décision, conséquences, alternatives écartées |
+| [Développement](/development/) | Prérequis, environnement local, arborescence du dépôt, tests, contribution |
+| [Exploitation](/operations/) | Index d’exploitation : ce qui est décrit ailleurs, et les pages prévues |
+| [Conformité](/compliance/) | Index de conformité : ce qui est décrit ailleurs, et les pages prévues |
+
 ## Par public
 
 | Vous êtes… | Commencez par |
@@ -44,3 +62,9 @@ OpenBastion est en cours d’implémentation du MVP (version `0.0.1-dev`, licenc
 - Les garanties que le MVP tient réellement : [Vue d’ensemble de la sécurité](/security/security-overview)
 - **Ce que le MVP ne garantit pas encore** — à lire avant toute mise en production : [Limites connues](/security/known-limitations)
 - L’état réel, les chiffres de tests et les écarts assumés : [NOTES_SANDBOX.md](https://github.com/openbastion/openbastion/blob/main/NOTES_SANDBOX.md)
+
+## Ce site
+
+Le contenu vient du dossier `docs/` du dépôt [openbastion/openbastion](https://github.com/openbastion/openbastion) et est repris ici par `scripts/sync-docs.sh` ; seules cette page d’accueil, la configuration du site et les fichiers publics sont écrits dans ce dépôt. Une correction de fond se fait donc en amont, dans le dépôt principal.
+
+La recherche est fournie par DocSearch (Algolia) lorsqu’il est configuré, sinon par la recherche locale de VitePress : elle couvre les titres et le texte de toutes les pages.
