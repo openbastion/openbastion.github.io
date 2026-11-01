@@ -1,0 +1,27 @@
+# ADR-0059 — Dependabot propose les mises à jour, une dépendance à la fois et après sept jours ; la CI décide
+
+**Contexte**
+ADR-0052 cherche les vulnérabilités **connues** à chaque commit et chaque lundi (`make vuln`), et ADR-0051 épingle les images par empreinte. Mais rien ne **propose** une version plus récente : une empreinte d'image, une action, `x/crypto` restent à la version du jour où on les a relevées, jusqu'à ce que quelqu'un y pense — ADR-0051 l'a noté (« mise à jour manuelle des empreintes »), et c'est une telle inattention qui avait laissé 21 vulnérabilités dans `x/crypto` (ADR-0052).
+
+**Décision** *(outillage retenu par Bony Kiss le 31 octobre 2026 parmi les reliquats proposés, avec les pull requests qu'il ouvre ; la forme est renversable)*
+
+1. **`.github/dependabot.yml`** pour les cinq sources du dépôt : les 17 modules Go, les 2 paquets npm, les actions du workflow, les `Dockerfile` et les fichiers compose. Une passe chaque lundi.
+2. **Une pull request par dépendance**, jamais une mise à jour en masse (policy des dépendances, point 3) : la même dépendance avance dans tous les modules à la fois (`group-by: dependency-name`) — `x/crypto` fait une pull request, pas dix-sept, et les modules de `go.work` restent d'accord.
+3. **Une version n'est proposée qu'à sept jours** (`cooldown`) : une version piégée est le plus souvent retirée en quelques jours. Les mises à jour **de sécurité** de Dependabot ne sont pas retardées.
+4. **Les empreintes restent** : Dependabot déplace l'empreinte d'une action ou d'une image avec sa version ; `images_test.go` refuse toujours une image sans empreinte.
+5 bis. **Une version majeure est une décision, pas une mise à jour** (ajouté après la première passe) : ne sont pas proposées les majeures de `node` (Dependabot a proposé Node 25, sans support long et en fin de vie depuis le 1ᵉʳ juin 2026 ; une LTS plus récente se choisit), de `postgres` (une majeure est une migration de données) et de `typescript` (la 7 n'a plus l'API du compilateur dont la génération des déclarations des icônes a besoin — mesuré, avec `tsup` 8 et 9).
+5. **Rien n'est fusionné de soi-même** : chaque pull request passe la CI entière (dont `make vuln`) ; la fusion est un geste humain.
+
+**Conséquences**
+- (+) Une version plus récente devient une pull request vérifiée, au lieu d'attendre qu'on y pense.
+- (+) **Constaté à la première passe** (31 octobre 2026, `3d9f7b7`) : la configuration est acceptée, les cinq passes réussissent et ouvrent 6 pull requests, chacune passée par la CI. Pour Go, le regroupement tient : `github.com/lib/pq` 1.10.9 → 1.12.3 est **une** pull request sur les 7 modules qui l'utilisent (son titre ne nomme que le premier).
+- (−) **Constaté** : pour les images, le regroupement ne joue pas entre dossiers — `node` arrive en deux pull requests, une par `Dockerfile` (`deploy/docker-compose`, `deploy/base44`). À fusionner ensemble.
+- (−) **Pas de test local possible** : la configuration est lue par GitHub après le push ; la première passe l'a vérifiée (ci-dessus).
+- (−) Les **alertes et mises à jour de sécurité** de Dependabot sont un réglage du dépôt (Settings → Code security), pas de ce fichier : à activer par le propriétaire.
+- (−) Dependabot ne met pas à jour `go.work`, ni la version de Go de la CI (`GO_VERSION`), ni les empreintes écrites dans les tests (l'image OpenBao de `transit_flow_test.go`) : elles restent manuelles.
+- (−) Les pull requests de Dependabot n'ont pas accès aux secrets du dépôt — la CI n'en utilise aucun.
+
+**Alternatives envisagées**
+- **Renovate** : plus de réglages, mais une application tierce avec un accès en écriture au dépôt ; Dependabot est déjà là.
+- **Un groupe par écosystème** (une pull request par semaine pour tout Go) : moins de bruit, mais c'est la mise à jour en masse que la policy refuse — une régression ne se rattache plus à une dépendance.
+- **Rien de plus que `make vuln`** : ne signale qu'une vulnérabilité publiée, jamais une version qui la corrige avant qu'elle le soit.
