@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="OpenBastion">
+  <path d="M16 2 4 7v9c0 7.2 5.1 12.4 12 14 6.9-1.6 12-6.8 12-14V7L16 2z" fill="#0f766e" />
+  <path d="M16 8v16c4.8-1.4 8-5.2 8-9.8V10.6L16 8z" fill="#14b8a6" />
+  <rect x="13.5" y="13" width="9" height="2.4" rx="1.2" fill="#f8fafc" />
+  <rect x="13.5" y="18" width="9" height="2.4" rx="1.2" fill="#f8fafc" />
+</svg>

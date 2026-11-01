@@ -1,0 +1,23 @@
+# Administration
+
+Pour l'administrateur de la plateforme, une fois l'installation faite ([`../deployment/`](../deployment/index.md)). Le périmètre est celui du MVP.
+
+| Page | Contenu |
+|---|---|
+| [`initial-setup.md`](initial-setup.md) | Les premiers gestes après l'installation |
+| [`privileged-accounts.md`](privileged-accounts.md) | Comptes privilégiés au Vault : onboarding, clé d'hôte, rotation, SFTP et SCP |
+| [`access-policies.md`](access-policies.md) | Politiques RBAC |
+| [`approval-workflows.md`](approval-workflows.md) | Accès d'urgence (break-glass) : bornes, double validation, notification |
+| [`session-recording.md`](session-recording.md) | Politique d'enregistrement : enregistrer ou refuser (ADR-0008) |
+| [`identity-providers.md`](identity-providers.md) | Fédération d'identité (OIDC, ADR-0035) et annuaire LDAP/AD (ADR-0061) |
+| [`second-factor.md`](second-factor.md) | Second facteur TOTP exigé par rôle, enrôlement par code d'administrateur, remise à zéro (ADR-0062) |
+| [`audit-and-compliance.md`](audit-and-compliance.md) | Supervision et audit : chaîne, clé, ancrage, rétention |
+| [`notifications.md`](notifications.md) | Les webhooks signés : alertes de l'audit (ADR-0045), break-glass (ADR-0012, ADR-0013) ; vérifier une signature |
+
+## Pages prévues
+
+| Page | État |
+|---|---|
+| `user-and-group-management.md` | Les utilisateurs locaux se créent par le CLI (`openbastion-cli user create`, voir `deploy/docker-compose/README.md`) ; pas de gestion de groupes dans le MVP. |
+| `secret-rotation.md` | La rotation est décrite dans [`privileged-accounts.md`](privileged-accounts.md) (ADR-0037, ADR-0040, ADR-0041, ADR-0044). |
+| `monitoring.md` | Voir [`../operations/`](../operations/index.md). |
