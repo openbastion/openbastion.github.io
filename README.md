@@ -34,9 +34,20 @@ npm run docs:build    # sortie statique dans docs/.vitepress/dist
 ## Synchroniser avec le dépôt principal
 
 ```bash
-./scripts/sync-docs.sh
+./scripts/sync-docs.sh              # synchronise
+./scripts/sync-docs.sh --dry-run    # affiche les actions sans rien écrire
+./scripts/sync-docs.sh --force      # miroir strict : écrase les retouches locales
 ```
 
-Le script clone `openbastion/openbastion`, reprend son dossier `docs/` et réapplique les deux transformations nécessaires au site : les pages d'index `README.md` deviennent des `index.md`, et les rares liens sortant du dossier `docs/` (comme `NOTES_SANDBOX.md`) pointent vers GitHub. La page d'accueil `docs/index.md` n'est jamais écrasée.
+Le script clone `openbastion/openbastion`, reprend son dossier `docs/` et réapplique les deux transformations nécessaires au site : les pages d'index `README.md` deviennent des `index.md`, et les rares liens sortant du dossier `docs/` (comme `NOTES_SANDBOX.md`) pointent vers GitHub. `docs/index.md`, `docs/public/` et `docs/.vitepress/` ne sont jamais touchés.
+
+`scripts/sync-docs.manifest` garde l'empreinte de chaque page telle que l'a laissée la dernière synchronisation : c'est l'état de référence des fusions, à committer avec le résultat de la synchronisation. Le script s'en sert pour ne pas écraser de travail local :
+
+- page inchangée ici : elle est remplacée par la version amont ;
+- page retouchée ici, amont inchangé : elle est conservée et listée ;
+- les deux ont changé : fusion à trois points ; sur un chevauchement, des marqueurs `<<<<<<<` sont écrits dans la page et le script sort en code 1 ;
+- page supprimée en amont : elle est retirée, sauf si elle a été retouchée ici (conservée et signalée).
+
+Une retouche locale reste l'exception : le contenu appartient au dépôt principal, où la correction doit être reportée.
 
 Après synchronisation, vérifier que `docs/.vitepress/config.mts` construit toujours sa navigation : elle est générée à partir des dossiers et des titres de niveau 1 des pages, donc une nouvelle page apparaît sans configuration supplémentaire.
