@@ -15,6 +15,12 @@ services:
       - BASE44_SANDBOX_HOST_DOMAIN
       - BASE44_PUBLIC_HOST_SUFFIX
       - __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS
+    env_file:
+      # Identifiants DocSearch (ALGOLIA_APP_ID, ALGOLIA_API_KEY, ALGOLIA_INDEX_NAME)
+      # livrés par la plateforme. Facultatif : sans eux, la recherche locale de
+      # VitePress prend le relais.
+      - path: /run/base44/app.env
+        required: false
     volumes:
       - ./:/app
       - docs_node_modules:/app/node_modules

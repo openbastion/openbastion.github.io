@@ -2,5 +2,21 @@
   "previewPort": 3000,
   "healthPath": "/",
   "startCommand": "docker compose -f docker-compose.base44.yml up -d",
-  "secrets": []
+  "secrets": [
+    {
+      "name": "ALGOLIA_APP_ID",
+      "description": "Identifiant d'application DocSearch (Algolia) du site de documentation.",
+      "requiredAtBoot": false
+    },
+    {
+      "name": "ALGOLIA_API_KEY",
+      "description": "Clé de recherche publique DocSearch (en lecture seule) du site de documentation.",
+      "requiredAtBoot": false
+    },
+    {
+      "name": "ALGOLIA_INDEX_NAME",
+      "description": "Nom de l'index DocSearch de la documentation OpenBastion.",
+      "requiredAtBoot": false
+    }
+  ]
 }

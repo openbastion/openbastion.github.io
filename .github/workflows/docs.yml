@@ -1,0 +1,40 @@
+name: Documentation
+
+# Porte automatique du site : conformité des pages, liens internes, puis
+# construction statique (VitePress échoue lui aussi sur un lien mort).
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verification:
+    name: Pages, liens et construction
+    runs-on: ubuntu-latest
+    steps:
+      # Actions épinglées par empreinte (voir ADR-0047), jamais par étiquette.
+      - name: Récupérer le dépôt
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Installer Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Installer les dépendances
+        run: npm ci
+      - name: Vérifier la conformité des pages Markdown
+        run: npm run docs:check:markdown
+      - name: Vérifier les liens internes
+        run: npm run docs:check:links
+      - name: Construire le site
+        run: npm run docs:build

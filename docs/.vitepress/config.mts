@@ -38,6 +38,39 @@ function previewHosts(): string[] {
   ].filter((host): host is string => Boolean(host))
 }
 
+/**
+ * Recherche DocSearch (Algolia). Les identifiants viennent de l'environnement :
+ * `ALGOLIA_APP_ID`, `ALGOLIA_API_KEY` (clé de recherche publique, en lecture
+ * seule) et `ALGOLIA_INDEX_NAME`. Les trois sont requis par DocSearch ; s'il en
+ * manque un (construction locale, intégration continue), la recherche locale de
+ * VitePress prend le relais pour que le site reste utilisable.
+ */
+const algoliaSearch = (() => {
+  const { ALGOLIA_APP_ID: appId, ALGOLIA_API_KEY: apiKey, ALGOLIA_INDEX_NAME: indexName } =
+    process.env
+  if (!appId || !apiKey || !indexName) return null
+  return { appId, apiKey, indexName }
+})()
+
+/** Recherche locale de VitePress, utilisée tant que DocSearch n'est pas configuré. */
+const localSearch = {
+  provider: 'local' as const,
+  options: {
+    translations: {
+      button: { buttonText: 'Rechercher', buttonAriaLabel: 'Rechercher' },
+      modal: {
+        noResultsText: 'Aucun résultat pour',
+        resetButtonTitle: 'Effacer la recherche',
+        footer: {
+          selectText: 'pour ouvrir',
+          navigateText: 'pour naviguer',
+          closeText: 'pour fermer',
+        },
+      },
+    },
+  },
+}
+
 /** Le titre d'une page est son premier titre de niveau 1. */
 function headingOf(file: string): string {
   const source = fs.readFileSync(file, 'utf8')
@@ -98,23 +131,9 @@ export default withMermaid(
           items: itemsOf(dir),
         })),
       ],
-      search: {
-        provider: 'local',
-        options: {
-          translations: {
-            button: { buttonText: 'Rechercher', buttonAriaLabel: 'Rechercher' },
-            modal: {
-              noResultsText: 'Aucun résultat pour',
-              resetButtonTitle: 'Effacer la recherche',
-              footer: {
-                selectText: 'pour ouvrir',
-                navigateText: 'pour naviguer',
-                closeText: 'pour fermer',
-              },
-            },
-          },
-        },
-      },
+      search: algoliaSearch
+        ? { provider: 'algolia', options: algoliaSearch }
+        : localSearch,
       socialLinks: [{ icon: 'github', link: 'https://github.com/openbastion/openbastion' }],
       outline: { label: 'Sur cette page', level: [2, 3] },
       docFooter: { prev: 'Page précédente', next: 'Page suivante' },
