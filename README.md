@@ -50,6 +50,14 @@ npm run docs:build       # construction statique, échoue aussi sur un lien mort
   page ou un fichier existant, et chaque fragment `#ancre` à un titre présent. Les
   liens externes ne sont pas ouverts.
 
+## Licence
+
+Ce dépôt documentaire est publié sous **GNU Affero General Public License v3.0 only (AGPL-3.0-only)**. Consultez le fichier [`LICENSE`](LICENSE) pour le texte complet. Les éléments tiers éventuels restent soumis à leurs notices et licences propres.
+
+## Gouvernance et sécurité
+
+Les contributions suivent [`CONTRIBUTING.md`](CONTRIBUTING.md), le [Code de conduite](CODE_OF_CONDUCT.md) et la [politique de sécurité](SECURITY.md). Chaque commit d'une pull request doit comporter un trailer DCO `Signed-off-by`, contrôlé par la CI.
+
 ## Recherche
 
 La recherche est fournie par [DocSearch](https://docsearch.algolia.com/) (Algolia)

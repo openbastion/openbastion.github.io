@@ -40,6 +40,38 @@ jobs:
       - name: Construire le site
         run: npm run docs:build
 
+  dco:
+    name: Vérification DCO
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Récupérer les commits de la pull request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Vérifier le sign-off de chaque commit
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          failed=0
+          while IFS= read -r commit; do
+            if ! git show -s --format=%B "$commit" | grep -Eq '^Signed-off-by: .+ <[^<>[:space:]]+@[^<>[:space:]]+>$'; then
+              echo "::error::Commit $commit sans trailer DCO Signed-off-by valide"
+              failed=1
+            fi
+          done < <(git rev-list --reverse "$BASE_SHA..HEAD")
+          if [ "$failed" -ne 0 ]; then
+            echo "Chaque commit doit porter son propre trailer Signed-off-by. Utilisez git commit -s."
+            exit 1
+          fi
+          echo "Tous les commits de la pull request portent un trailer DCO valide."
+
   # Publication réelle du site : sans ce job, GitHub Pages continuait de rendre
   # le README.md du dépôt (source « branche main, racine ») au lieu du site
   # VitePress. La source Pages doit être « GitHub Actions » dans les réglages
@@ -50,6 +82,7 @@ jobs:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       pages: write
       id-token: write
     environment:
