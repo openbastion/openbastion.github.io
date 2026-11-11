@@ -7,6 +7,7 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
 
 concurrency:
@@ -42,7 +43,7 @@ jobs:
 
   dco:
     name: Vérification DCO
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && github.event.pull_request != null
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -65,7 +66,7 @@ jobs:
               echo "::error::Commit $commit sans trailer DCO Signed-off-by valide"
               failed=1
             fi
-          done < <(git rev-list --reverse "$BASE_SHA..HEAD")
+          done < <(git rev-list --reverse --no-merges "$BASE_SHA..HEAD")
           if [ "$failed" -ne 0 ]; then
             echo "Chaque commit doit porter son propre trailer Signed-off-by. Utilisez git commit -s."
             exit 1
