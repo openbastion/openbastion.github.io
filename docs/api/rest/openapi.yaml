@@ -4,8 +4,8 @@ info:
   version: "0.1.0-mvp"
   summary: API publique OpenBastion — périmètre MVP
   license:
-    name: Apache-2.0
-    identifier: Apache-2.0
+    name: AGPL-3.0
+    identifier: AGPL-3.0-only
   description: >
     API REST de la plateforme PAM OpenBastion. Ce document ne couvre que le
     périmètre MVP (voir docs/roadmap.md). Les endpoints liés aux
@@ -72,16 +72,52 @@ paths:
             text/plain:
               schema: { type: string }
 
+  /auth/oidc:
+    get:
+      tags: [auth]
+      summary: Les fournisseurs OIDC déclarés (ADR-0076)
+      description: >
+        Pour la page de connexion : l'identifiant et le libellé de chaque
+        fournisseur, dans l'ordre déclaré, jamais son émetteur. L'identifiant
+        vide est celui des variables `OIDC_*`. Publique ; la Gateway garde la
+        réponse 30 s.
+      security: []
+      responses:
+        "200":
+          description: La liste, vide si la connexion fédérée est désactivée
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [enabled, providers]
+                properties:
+                  enabled: { type: boolean }
+                  providers:
+                    type: array
+                    items: { $ref: "#/components/schemas/IdentityProviderInfo" }
+        "502": { description: L'Authentication Service ne répond pas }
+
   /auth/oidc/start:
     post:
       tags: [auth]
-      summary: Commence une connexion fédérée OIDC (ADR-0035)
+      summary: Commence une connexion fédérée OIDC (ADR-0035, ADR-0076)
       description: >
         Rend l'URL du fournisseur où envoyer le navigateur : flux par code
         d'autorisation avec PKCE (S256), `state` et `nonce` tirés au hasard,
-        valables 10 minutes et à usage unique. Sans corps. Compte dans le budget
-        de connexion par adresse, comme `/auth/login`.
+        valables 10 minutes et à usage unique. La tentative retient son
+        fournisseur : le retour ne s'échange que chez lui. Corps facultatif avec
+        un seul fournisseur ; `provider` obligatoire dès qu'il y en a plusieurs.
+        Compte dans le budget de connexion par adresse, comme `/auth/login`.
       security: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                provider: { type: string, pattern: "^[a-z0-9-]{1,32}$", description: "L'identifiant d'une entrée de `GET /auth/oidc`" }
       responses:
         "200":
           description: L'URL d'autorisation
@@ -92,6 +128,7 @@ paths:
                 required: [authorizationUrl]
                 properties:
                   authorizationUrl: { type: string, format: uri }
+        "400": { description: Plusieurs fournisseurs et aucun nommé, ou un identifiant inconnu }
         "404": { description: La connexion fédérée n'est pas configurée }
         "429": { description: Budget de connexion de l'adresse épuisé (`Retry-After`) }
 
@@ -130,20 +167,25 @@ paths:
   /auth/ldap:
     get:
       tags: [auth]
-      summary: Dit si la connexion par annuaire est activée (ADR-0061)
+      summary: Dit si la connexion par annuaire est activée, et par quels annuaires (ADR-0061, ADR-0076)
       description: >
-        Pour la page de connexion. Publique ; la Gateway garde la réponse 30 s.
+        Pour la page de connexion : l'identifiant et le libellé de chaque
+        annuaire, jamais son URL ni sa base. L'identifiant vide est celui des
+        variables `LDAP_*`. Publique ; la Gateway garde la réponse 30 s.
       security: []
       responses:
         "200":
-          description: Activée ou non
+          description: Activée ou non, et la liste
           content:
             application/json:
               schema:
                 type: object
-                required: [enabled]
+                required: [enabled, directories]
                 properties:
                   enabled: { type: boolean }
+                  directories:
+                    type: array
+                    items: { $ref: "#/components/schemas/IdentityProviderInfo" }
         "502": { description: L'Authentication Service ne répond pas }
 
   /auth/ldap/login:
@@ -151,10 +193,14 @@ paths:
       tags: [auth]
       summary: Connexion avec le mot de passe de l'annuaire, LDAP ou Active Directory (ADR-0061)
       description: >
-        Même corps que `/auth/login`. L'annuaire vérifie le mot de passe (un compte
-        de service cherche l'utilisateur, une connexion à part se lie en son nom) ;
-        les rôles viennent de la table des groupes déclarée (`LDAP_ROLE_MAP_FILE`),
-        jamais de l'annuaire. Le compte s'appelle `ldap:<objectGUID ou entryUUID>`.
+        Le corps de `/auth/login`, plus `directory` : l'identifiant de l'annuaire
+        choisi, obligatoire dès qu'il y en a plusieurs (ADR-0076) ; OpenBastion
+        n'essaie jamais les annuaires l'un après l'autre. L'annuaire vérifie le mot
+        de passe (un compte de service cherche l'utilisateur, une connexion à part
+        se lie en son nom) ; les rôles viennent de la table des groupes de cet
+        annuaire, jamais de l'annuaire lui-même. Le compte s'appelle
+        `ldap:<annuaire>:<objectGUID ou entryUUID>`, ou `ldap:<…>` pour l'annuaire
+        des variables `LDAP_*`.
         Un mot de passe vide est refusé avant l'annuaire (ce serait un bind anonyme).
         Compte dans le budget de connexion par adresse, comme `/auth/login`.
       security: []
@@ -162,14 +208,19 @@ paths:
         required: true
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/LoginRequest" }
+            schema:
+              allOf:
+                - { $ref: "#/components/schemas/LoginRequest" }
+                - type: object
+                  properties:
+                    directory: { type: string, pattern: "^[a-z0-9-]{1,32}$", description: "L'identifiant d'une entrée de `GET /auth/ldap`" }
       responses:
         "200":
           description: Le jeton OpenBastion, comme `/auth/login`
           content:
             application/json:
               schema: { $ref: "#/components/schemas/TokenPair" }
-        "400": { description: Le corps n'est pas une connexion }
+        "400": { description: "Le corps n'est pas une connexion ; ou plusieurs annuaires et aucun nommé, ou un identifiant inconnu — aucun annuaire n'est interrogé" }
         "401": { description: Connexion refusée (nom inconnu, plusieurs entrées, mot de passe faux ou vide, compte désactivé) — sans détail }
         "403": { description: L'annuaire répond de l'utilisateur, et aucun de ses groupes ne donne de rôle OpenBastion }
         "404": { description: La connexion par annuaire n'est pas configurée }
@@ -480,6 +531,12 @@ paths:
         que la plateforme n'a pas fixé cette limite. Chaque demande, accordée
         ou refusée, est auditée (`session.breakglass_requested`).
 
+        **Jamais pour un écran (ADR-0071 §8).** L'enregistrement d'une session
+        `rdp` ou `vnc` ne se déroge pas : une demande `breakGlass` sur un tel
+        compte est refusée dès sa création (`409`), enregistrée comme refusée et
+        auditée (`session.breakglass_requested`, échec), avant qu'aucune
+        approbation ne soit demandée.
+
         **Double validation (ADR-0011).** Par défaut
         (`BREAKGLASS_APPROVAL=required`), une demande `breakGlass` qui remplit
         ces conditions n'est **pas accordée** : elle est créée au statut
@@ -595,6 +652,55 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
+
+  /sessions/search:
+    get:
+      tags: [sessions]
+      summary: Cherche des sessions par leurs métadonnées (ADR-0080)
+      description: >
+        Les sessions créées dans la fenêtre, les plus récentes d'abord, dont
+        le demandeur, le compte, la justification ou le ticket contient `q`
+        (sous-chaîne sans casse, sans joker : `%` et `_` sont eux-mêmes ;
+        `q` absent : toutes celles de la fenêtre), parmi celles que
+        l'appelant peut lire — les siennes, celles qu'il a décidées, et
+        celles d'un compte où il détient `session:read` sur
+        `session-read:account:{id}` (ADR-0021). Chaque session servie au
+        titre d'une politique est un événement `session.read`, écrit
+        **avant** la réponse ; un seul non écrit : rien n'est servi (503).
+        50 sessions par page ; une page regarde au plus 500 sessions, et
+        `next` dit où commence la suivante.
+      parameters:
+        - { name: q, in: query, schema: { type: string, minLength: 3, maxLength: 256 } }
+        - { name: from, in: query, required: true, schema: { type: string, format: date-time } }
+        - { name: to, in: query, required: true, description: "Après `from`, 31 jours au plus.", schema: { type: string, format: date-time } }
+        - { name: status, in: query, description: "Le statut effectif (une session échue est `expired`).", schema: { type: string } }
+        - { name: protocol, in: query, schema: { type: string } }
+        - { name: requestedBy, in: query, schema: { type: string } }
+        - { name: privilegedAccountId, in: query, schema: { type: string } }
+        - { name: breakGlass, in: query, schema: { type: boolean } }
+        - { name: cursor, in: query, description: "Le `next` de la page précédente.", schema: { type: string } }
+      responses:
+        "200":
+          description: Une page
+          headers:
+            Cache-Control: { schema: { type: string, enum: [no-store] } }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [sessions, next]
+                properties:
+                  sessions: { type: array, maxItems: 50, items: { $ref: "#/components/schemas/Session" } }
+                  next: { type: string, description: "Vide quand il n'y a plus rien." }
+        "400":
+          description: "`q` de 1, 2 ou plus de 256 caractères ; fenêtre absente, inversée ou de plus de 31 jours ; `breakGlass` ni `true` ni `false` ; `cursor` qui n'est pas celui d'une page."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "403":
+          description: Pas d'utilisateur authentifié.
+        "503":
+          description: L'Authorization Service ne répond pas, ou une lecture n'a pas pu être écrite dans l'audit ; rien n'est servi.
 
   /sessions/{sessionId}:
     parameters:
@@ -767,11 +873,13 @@ paths:
       - $ref: "#/components/parameters/SessionId"
     post:
       tags: [sessions]
-      summary: Émet un ticket de connexion court terme vers le SSH Proxy
+      summary: Prépare une connexion SSH, VNC ou RDP
       description: >
-        Ne retourne jamais de secret cible — uniquement une adresse de proxy
-        et un jeton de connexion à courte durée de vie, consommé une seule
-        fois par le SSH Proxy (ADR-0003).
+        Ne retourne jamais de secret cible. SSH renvoie une adresse de proxy et un ticket à usage unique.
+        VNC et RDP renvoient un chemin d'attachement WebSocket ; le ticket reste côté Gateway dans un cookie
+        HttpOnly, SameSite=Strict et à usage unique, et n'est jamais exposé au navigateur (ADR-0071, ADR-0088).
+        RDP n'est ouvert que si l'installation a mis `RDP_ENABLED=true` au Broker et au proxy écran
+        (ADR-0088) : sinon `409`, avant qu'aucun scope Vault ne soit émis.
 
         Une session dont l'enregistrement n'est pas possible n'est pas
         établie (ADR-0008) : si le Command Recorder n'est pas prêt, le SSH
@@ -799,7 +907,17 @@ paths:
           description: Ticket de connexion
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/ConnectionTicket" }
+              schema:
+                oneOf:
+                  - { $ref: "#/components/schemas/ConnectionTicket" }
+                  - { $ref: "#/components/schemas/ScreenAttach" }
+          headers:
+            Set-Cookie:
+              description: >
+                Pour VNC et RDP uniquement : ob_screen_attach, HttpOnly, SameSite=Strict, limité au chemin
+                /sessions/{sessionId}/screen et valable au plus 30 secondes. Le ticket proxy n'est
+                pas présent dans le corps de la réponse.
+              schema: { type: string }
         "403":
           description: L'appelant n'est pas le demandeur de la session.
           content:
@@ -822,10 +940,9 @@ paths:
         "409":
           description: >
             La session ne peut pas être connectée dans son état (terminée,
-            expirée, en attente…) — ou son compte privilégié n'a pas de clé
-            d'hôte épinglée (ADR-0039) : « the privileged account has no
-            pinned host key: an administrator must pin it (PUT
-            /vault/accounts/{id}/host-key) before any session » (ADR-0042).
+            expirée, en attente…) — ou l'identité de sa cible n'est pas épinglée :
+            clé SSH via PUT /vault/accounts/{id}/host-key (ADR-0039), empreinte
+            TLS et nom de cible via PUT /vault/accounts/{id}/tls-pin (ADR-0071).
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -958,6 +1075,25 @@ paths:
         "409": { description: Pas une demande en attente. }
         "503": { description: Une dépendance ne répond pas ; la décision n'a pas été prise. }
 
+  /sessions/{sessionId}/screen:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+    get:
+      tags: [sessions]
+      summary: Relais WebSocket du flux écran VNC
+      description: >
+        Upgrade WebSocket même origine, sous-protocole openbastion.screen.v1. Cette route utilise le
+        cookie HttpOnly à usage unique posé par POST /sessions/{sessionId}/connect et n'accepte pas
+        de bearer token ni de ticket dans l'URL. La Gateway consomme le cookie puis relaie le flux
+        binaire vers le proxy sous mTLS ; le proxy n'envoie une frame qu'après son acquittement
+        durable par Video Recorder (ADR-0071). Les frames sont limitées à 4 Mio et l'entrée à 16 octets.
+      security: []
+      responses:
+        "101": { description: Connexion WebSocket établie ; le flux transporte HELLO, FRAME et END binaires }
+        "401": { description: Cookie d'attachement absent, expiré ou déjà consommé }
+        "403": { description: Origine WebSocket refusée }
+        "503": { description: Le proxy graphique est indisponible }
+
   /sessions/{sessionId}/recording:
     parameters:
       - $ref: "#/components/parameters/SessionId"
@@ -1017,6 +1153,125 @@ paths:
             panne (ADR-0022). La même lecture aboutit une fois la dépendance
             revenue.
 
+  /sessions/{sessionId}/recording/video/segments/{firstSequence}:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+      - name: firstSequence
+        in: path
+        required: true
+        schema: { type: integer, format: int64, minimum: 1 }
+        description: Première séquence du segment à relire.
+    get:
+      tags: [sessions]
+      summary: Récupère un segment vidéo enregistré d'une session
+      description: >
+        Le Video Recorder vérifie l'action `recording:session:read` pour
+        `recording:session:{sessionId}`, puis écrit `recording.read` à l'Audit
+        Service avant de déchiffrer et de servir le segment (ADR-0070). La
+        Gateway transmet exclusivement l'utilisateur et les rôles du jeton
+        vérifié ; les paramètres, le corps et les en-têtes du client ne peuvent
+        pas choisir cette identité. Les images sont renvoyées en base64 dans
+        `frameData`. `complete: false` indique que l'enregistrement a été
+        interrompu avant son marqueur terminal. Le stockage objet n'est jamais
+        exposé directement et la réponse est marquée `Cache-Control: no-store`.
+      responses:
+        "200":
+          description: Segment PNG horodaté et état de complétude.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VideoRecordingSegment" }
+        "400":
+          description: Identifiant de session ou séquence invalide.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "403":
+          description: Refus RBAC du Video Recorder.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404":
+          description: Segment inexistant ou non disponible.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409":
+          description: État ou séquence de l'enregistrement incompatible.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "502":
+          description: Réponse amont invalide ; aucun segment n'est servi.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503":
+          description: Le Video Recorder, l'autorisation ou l'audit est indisponible ; aucun octet n'est servi.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /recordings/search:
+    get:
+      tags: [sessions]
+      summary: Cherche un texte dans les commandes enregistrées (ADR-0080)
+      description: >
+        Le Command Recorder déchiffre à la volée les sessions dont
+        l'enregistrement a commencé dans la fenêtre, et y cherche `q` comme
+        sous-chaîne, sans tenir compte de la casse (Unicode, NFC). Aucun index,
+        aucune copie en clair. Au plus 200 sessions par recherche (les plus
+        récentes d'abord), 50 commandes par session et 1 000 au total ;
+        au-delà, `truncated` est vrai et une fenêtre plus étroite trouve le
+        reste. Chaque session est autorisée (`recording:session:read` sur
+        `recording:session:{id}`) avant que rien d'elle ne soit déchiffré ;
+        une session refusée n'apparaît pas. Un événement `recording.search`
+        est écrit **avant** tout déchiffrement (détails : la fenêtre, les
+        nombres de sessions candidates, autorisées et refusées, et une
+        empreinte HMAC de `q`, jamais `q`) ; puis un `recording.read` par
+        session dont la réponse montre des commandes (détail `search_id`).
+        L'un d'eux non écrit : rien n'est servi (503). Désactivée sans
+        `SEARCH_AUDIT_KEY_FILE` (404).
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema: { type: string, minLength: 3, maxLength: 256 }
+        - name: from
+          in: query
+          required: true
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          required: true
+          description: "Après `from`, 31 jours au plus."
+          schema: { type: string, format: date-time }
+      responses:
+        "200":
+          description: Les sessions dont la réponse montre des commandes
+          headers:
+            Cache-Control: { schema: { type: string, enum: [no-store] } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RecordingSearchResult" }
+        "400":
+          description: "`q` hors de 3 à 256 caractères, fenêtre absente, inversée ou de plus de 31 jours."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "403":
+          description: Pas d'utilisateur authentifié.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404":
+          description: La recherche n'est pas configurée (`SEARCH_AUDIT_KEY_FILE`).
+        "503":
+          description: >
+            L'Authorization Service ne répond pas, ou la recherche ou l'une
+            des lectures qu'elle divulgue n'a pas pu être écrite dans
+            l'audit : rien n'est servi, et la réponse ne dit rien des
+            enregistrements.
+
   /vault/accounts:
     get:
       tags: [vault]
@@ -1053,7 +1308,7 @@ paths:
               schema: { $ref: "#/components/schemas/PrivilegedAccount" }
 
         "400":
-          description: hostKey absente ou illisible, intervalle de rotation hors bornes ou sur une politique qui n'en prend pas.
+          description: hostKey SSH absente/illisible, protocole non pris en charge, ou rotation incompatible avec VNC/RDP.
         "403":
           description: Refusé par l'Authorization Service ; le corps dit pourquoi.
         "409":
@@ -1140,6 +1395,53 @@ paths:
           description: Compte inconnu ou désactivé
         "503":
           description: L'Audit Service ne répond pas — aucun changement de clé sans trace
+
+  /vault/accounts/{accountId}/tls-pin:
+    parameters:
+      - name: accountId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    put:
+      tags: [vault]
+      summary: Épingle (ou ré-épingle) le certificat TLS et le nom de cible d'un compte VNC/RDP
+      description: >-
+        Réservé aux administrateurs du compte (`vault:account-admin:{id}`).
+        L'empreinte SHA-256 doit provenir du certificat feuille relevé sur la cible,
+        jamais d'une connexion non fiable. L'audit (`vault.tls_pin_set`) est écrit
+        avant le changement ; sans audit, aucune modification. Un compte VNC/RDP
+        sans empreinte et nom DNS/IP épinglés ne peut recevoir de scope (ADR-0071).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tlsCertificateSha256, targetDomain]
+              properties:
+                tlsCertificateSha256: { type: string, pattern: '^[A-Fa-f0-9]{64}$', description: Empreinte SHA-256 hexadécimale du certificat feuille }
+                targetDomain: { type: string, description: Nom DNS ou IP attendu dans le certificat TLS }
+      responses:
+        "200":
+          description: Identité TLS épinglée
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [tlsCertificateSha256, targetDomain]
+                properties:
+                  tlsCertificateSha256: { type: string, pattern: '^[a-f0-9]{64}$' }
+                  targetDomain: { type: string }
+        "400":
+          description: Empreinte, nom de cible ou protocole invalide
+        "403":
+          description: L'appelant n'administre pas ce compte
+        "404":
+          description: Compte inconnu ou désactivé
+        "409":
+          description: Une dépendance de cible manque avant l'émission d'un scope
+        "503":
+          description: L'Audit Service ou une dépendance du Vault ne répond pas — aucun changement sans trace
 
   /vault/accounts/{accountId}/approval:
     parameters:
@@ -1376,6 +1678,13 @@ components:
       properties:
         challenge: { type: string }
         code: { type: string, pattern: "^[0-9]{6}$" }
+    IdentityProviderInfo:
+      description: Ce que la page de connexion sait d'un fournisseur ou d'un annuaire (ADR-0076)
+      type: object
+      required: [id, label]
+      properties:
+        id: { type: string, description: "`[a-z0-9-]{1,32}`, ou vide pour celui des variables `OIDC_*`/`LDAP_*`" }
+        label: { type: string, description: "Le libellé déclaré ; vide pour celui des variables" }
     LoginRequest:
       type: object
       required: [username, password]
@@ -1410,7 +1719,10 @@ components:
       required: [targetAccountId, protocol, justification]
       properties:
         targetAccountId: { type: string, format: uuid, description: "Réfère un PrivilegedAccount du Vault" }
-        protocol: { type: string, enum: [ssh] }
+        protocol:
+          type: string
+          enum: [ssh, vnc, rdp]
+          description: Must match the stored account protocol. An RDP session is connectable only where the installation set RDP_ENABLED=true at the Broker and at the screen proxy (ADR-0088); otherwise connect answers 409.
         justification: { type: string, minLength: 10 }
         durationMinutes: { type: integer, default: 60, maximum: 480 }
         breakGlass:
@@ -1421,7 +1733,8 @@ components:
             une session break-glass, `durationMinutes` est borné par la limite
             de la plateforme (30 minutes par exemple), pas par 480. La demande
             attend l'approbation d'une autre personne (ADR-0011) sauf si la
-            plateforme a désactivé la double validation par son nom.
+            plateforme a désactivé la double validation par son nom. Refusé
+            (`409`) pour un compte `rdp` ou `vnc` (ADR-0071 §8).
         ticket:
           type: string
           maxLength: 128
@@ -1471,9 +1784,19 @@ components:
 
     ConnectionTicket:
       type: object
+      required: [proxyEndpoint, ticket, expiresAt]
       properties:
+        protocol: { type: string, enum: [ssh], default: ssh }
         proxyEndpoint: { type: string, example: "ssh-proxy.internal:2222" }
         ticket: { type: string, description: "Jeton à usage unique, consommé par le SSH Proxy" }
+        expiresAt: { type: string, format: date-time }
+
+    ScreenAttach:
+      type: object
+      required: [protocol, attach, expiresAt]
+      properties:
+        protocol: { type: string, enum: [vnc, rdp] }
+        attach: { type: string, example: "/sessions/session-id/screen", description: "Chemin WebSocket même origine ; l'authentification est le cookie HttpOnly d'attachement, pas le bearer token" }
         expiresAt: { type: string, format: date-time }
 
     CommandRecording:
@@ -1491,6 +1814,53 @@ components:
               timestamp: { type: string, format: date-time }
               command: { type: string }
 
+    RecordingSearchResult:
+      type: object
+      required: [searchId, sessions, truncated]
+      properties:
+        searchId: { type: string, description: "L'identifiant de la recherche, celui de son événement `recording.search`" }
+        truncated: { type: boolean, description: "Plus de 200 sessions dans la fenêtre, ou plus de 1 000 commandes trouvées" }
+        sessions:
+          type: array
+          items:
+            type: object
+            required: [sessionId, hits]
+            properties:
+              sessionId: { type: string }
+              hits:
+                type: array
+                maxItems: 50
+                items:
+                  type: object
+                  properties:
+                    timestamp: { type: string, format: date-time }
+                    command: { type: string }
+
+    VideoRecordingSegment:
+      type: object
+      required: [sessionId, firstSequence, lastSequence, frames, complete]
+      properties:
+        sessionId: { type: string }
+        firstSequence: { type: integer, format: int64, minimum: 1 }
+        lastSequence: { type: integer, format: int64, minimum: 1 }
+        complete:
+          type: boolean
+          description: Faux si la session s'est interrompue sans marqueur terminal.
+        frames:
+          type: array
+          items: { $ref: "#/components/schemas/VideoRecordingFrame" }
+
+    VideoRecordingFrame:
+      type: object
+      required: [timestamp, frameData, codec]
+      properties:
+        timestamp: { type: string, format: date-time }
+        frameData:
+          type: string
+          format: byte
+          description: Image PNG encodée en base64 ; taille brute maximale de 4 Mio par segment.
+        codec: { type: string, enum: [png] }
+
     PrivilegedAccountInput:
       type: object
       required: [name, username, targetHost, protocol]
@@ -1498,11 +1868,11 @@ components:
         name: { type: string }
         username: { type: string, description: "Compte sur la cible — distinct de name, qui identifie l'enregistrement (docs/architecture/data-architecture.md §3)." }
         targetHost: { type: string }
-        protocol: { type: string, enum: [ssh] }
-        rotationPolicy: { type: string, enum: [manual, post_use, scheduled], default: post_use, description: "post_use : renouvelé quand une session accordée se termine (ADR-0037) ; scheduled : renouvelé tous les rotationIntervalDays jours par le Vault (ADR-0040)" }
+        protocol: { type: string, enum: [ssh, vnc, rdp] }
+        rotationPolicy: { type: string, enum: [manual, post_use, scheduled], default: post_use, description: "Rotation automatique disponible uniquement pour SSH : post_use après une session (ADR-0037) ou scheduled tous les rotationIntervalDays jours (ADR-0040). VNC/RDP exigent manual." }
         reconciliationAccountId: { type: string, description: "Compte du Vault, de la même cible, qui peut changer ce mot de passe (root ou sudo chpasswd) — ADR-0037 ; vide : pas de rotation ; obligatoire pour scheduled (409 sinon)" }
         rotationIntervalDays: { type: integer, minimum: 1, maximum: 365, description: "Obligatoire pour rotationPolicy scheduled, refusé pour les autres (400) — ADR-0040. Le Vault fait tourner le compte cet intervalle après sa dernière rotation (ou sa création)." }
-        hostKey: { type: string, example: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA…", description: "Obligatoire à l'enregistrement (400 sans elle) : la clé d'hôte publique de la cible, relevée sur la cible (/etc/ssh/ssh_host_ed25519_key.pub, ou une ligne known_hosts). Le secret n'est envoyé qu'au serveur qui la présente — par le proxy comme par la rotation (ADR-0039). Ou, à la place, une ligne d'autorité de certificats SSH, `@cert-authority <nom> <clé de l'autorité>` : le serveur doit alors présenter un certificat d'hôte de cette autorité pour ce nom, valable et avec une date de fin (ADR-0048) ; sous cette ligne, jusqu'à 64 lignes `@revoked <nom ou *> <clé>` refusent une clé d'hôte même certifiée (ADR-0054)." }
+        hostKey: { type: string, example: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA…", description: "Obligatoire pour SSH ; vide pour VNC/RDP, qui exigent ensuite PUT /vault/accounts/{accountId}/tls-pin (ADR-0071). Pour SSH : clé d'hôte publique relevée sur la cible ou ligne known_hosts (ADR-0039), ou autorité @cert-authority (ADR-0048), avec lignes @revoked possibles (ADR-0054)." }
 
     PrivilegedAccount:
       allOf:
@@ -1518,6 +1888,8 @@ components:
             rotationFailures: { type: integer, description: "Rotations planifiées échouées d'affilée (ADR-0041) ; absent à 0. Tous les ROTATION_ALERT_AFTER_FAILURES échecs, vault.rotation_overdue est écrit à l'audit." }
             nextRotationAt: { type: string, format: date-time, description: "Compte scheduled seulement : quand il sera échu (ADR-0040). Le Vault balaie toutes les ROTATION_SWEEP_SECONDS : la rotation a lieu au premier balayage qui suit." }
             hostKeyFingerprint: { type: string, example: "SHA256:yghJebhOfPlVqBTuLQp+13ACAaCo+e5vLM/jNp6sJso", description: "Empreinte de hostKey (celle de l'autorité pour une ligne @cert-authority, ADR-0048) ; vide pour un compte enregistré avant ADR-0039 et jamais épinglé, qui n'ouvre aucune session" }
+            tlsCertificateSha256: { type: string, pattern: '^[a-f0-9]{64}$', description: "Empreinte SHA-256 du certificat TLS feuille épinglé (ADR-0071), vide avant pinning" }
+            targetDomain: { type: string, description: "Nom DNS/IP vérifié dans le certificat TLS (ADR-0071), vide avant pinning" }
             createdAt: { type: string, format: date-time }
             disabledAt: { type: string, format: date-time, description: "Absent tant que le compte est actif. Posé par DELETE /vault/accounts/{id} (suppression logique — docs/architecture/data-architecture.md §3) ; un compte avec ce champ renseigné n'apparaît plus dans GET /vault/accounts et GET /vault/accounts/{id} répond 404." }
 

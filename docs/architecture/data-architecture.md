@@ -8,7 +8,7 @@ Schéma relationnel du périmètre MVP. Chaque microservice reste propriétaire 
 |---|---|
 | Aucun secret en clair | `vault_secrets.encrypted_material` est un blob chiffré (enveloppe AES-256) ; la clé n'est jamais stockée en base, seule une référence à un KMS/HSM externe l'est (`encryption_key_id`). |
 | Audit inviolable | `audit_events` est chaîné par hash (`prev_hash` → `hash`), à la manière d'un registre append-only : toute altération rétroactive d'un événement casse la chaîne et devient détectable. |
-| Séparation stockage / index | PostgreSQL est la source de vérité des métadonnées. Les objets volumineux (vidéo, v0.0.1) vivent dans MinIO ; l'index de recherche plein texte (OpenSearch, v0.0.1) est une projection dérivée, reconstructible depuis PostgreSQL — jamais l'inverse. |
+| Séparation stockage / index | PostgreSQL est la source de vérité des métadonnées. Les segments vidéo chiffrés vivent dans un stockage objet compatible S3 (SeaweedFS en Compose) ; l'index de recherche plein texte (OpenSearch, v0.0.1) est une projection dérivée, reconstructible depuis PostgreSQL — jamais l'inverse. |
 | Un schéma par service | Pas de jointure inter-services au niveau base ; toute composition de données entre domaines passe par l'API/gRPC, jamais par une requête SQL cross-schéma. |
 
 ## 2. Diagramme entité-relation (périmètre MVP)
@@ -29,6 +29,7 @@ erDiagram
         uuid id PK
         text username
         text identity_source
+        text identity_provider
         text external_subject
         timestamptz disabled_at
     }
@@ -102,12 +103,13 @@ CREATE TABLE users (
     username          TEXT NOT NULL UNIQUE,
     display_name      TEXT NOT NULL,
     identity_source   TEXT NOT NULL CHECK (identity_source IN ('local','oidc','ldap')),  -- 'ldap' : ADR-0061
+    identity_provider TEXT NOT NULL DEFAULT '', -- ADR-0076 : l'identifiant du fournisseur ; '' pour les variables OIDC_*/LDAP_* et les comptes repris
     external_subject  TEXT,                    -- sub OIDC, ou objectGUID/entryUUID de l'annuaire ; NULL si identity_source = 'local'
     password_hash     TEXT,                    -- Argon2id ; NULL si identity_source = 'oidc'
     created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
     disabled_at       TIMESTAMPTZ,
-    UNIQUE (identity_source, external_subject)
+    UNIQUE (identity_source, identity_provider, external_subject)  -- ADR-0076 : un sub n'est unique que chez son émetteur
 );
 
 CREATE TABLE roles (
@@ -141,15 +143,19 @@ CREATE TABLE privileged_accounts (
     name             TEXT NOT NULL,
     username         TEXT NOT NULL,   -- nom du compte sur la cible ; distinct de `name`, qui identifie l'enregistrement
     target_host      TEXT NOT NULL,
-    protocol         TEXT NOT NULL CHECK (protocol IN ('ssh')),   -- énumération étendue en v0.0.1/v0.0.2
+    protocol         TEXT NOT NULL CHECK (protocol IN ('ssh','vnc','rdp')), -- ADR-0071 : clients protocolaires distincts
     approval_required BOOLEAN NOT NULL DEFAULT FALSE,             -- ADR-0067 : une autre personne approuve les sessions ordinaires
+    tls_certificate_sha256 TEXT NOT NULL DEFAULT '',               -- ADR-0071 : pin SHA-256 du certificat feuille, vide pour SSH
+    target_domain    TEXT NOT NULL DEFAULT '',                     -- ADR-0071 : nom DNS/IP vérifié, vide pour SSH
     rotation_policy  TEXT NOT NULL DEFAULT 'post_use'
                        CHECK (rotation_policy IN ('manual','post_use','scheduled')),
     last_rotated_at  TIMESTAMPTZ,
     created_by       UUID REFERENCES users(id),
     created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
     disabled_at      TIMESTAMPTZ,
-    UNIQUE (target_host, name)
+    UNIQUE (target_host, name),
+    CHECK ((tls_certificate_sha256 = '' AND target_domain = '') OR
+           (tls_certificate_sha256 <> '' AND target_domain <> ''))
 );
 
 CREATE TABLE vault_secrets (
@@ -222,6 +228,35 @@ CREATE TABLE session_command_entries (
     command_sealed  BYTEA NOT NULL          -- nonce || chiffré ; AAD = session_id + ts
 );
 CREATE INDEX idx_session_command_entries_session ON session_command_entries (session_id, ts, id);
+-- Session Broker, 005_search_window.sql (ADR-0080) : sessions_created_idx ON sessions (created_at DESC, id DESC),
+-- l'ordre et le curseur de la recherche des sessions (ILIKE … ESCAPE '\' sur ses métadonnées, sans index du texte).
+-- 002_search_window.sql (ADR-0080) : la recherche lit sa fenêtre sur le début de chaque enregistrement.
+-- Aucun index du texte : les commandes ne sont déchiffrées qu'à la volée, et jetées.
+CREATE INDEX idx_session_recording_keys_created ON session_recording_keys (created_at DESC, session_id);
+
+-- Video Recorder (ADR-0070) — implémenté : services/recording-audit/video-recorder/migrations.
+-- Les images sont chiffrées avant le stockage S3-compatible ; PostgreSQL ne conserve que
+-- l'état, la DEK enveloppée et les pointeurs/checksums des objets.
+CREATE TABLE video_recordings (
+    session_id    TEXT PRIMARY KEY,
+    key_id        TEXT NOT NULL,
+    wrapped_dek   BYTEA NOT NULL,
+    status        TEXT NOT NULL CHECK (status IN ('incomplete', 'complete')),
+    last_sequence BIGINT NOT NULL DEFAULT 0 CHECK (last_sequence >= 0),
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    completed_at  TIMESTAMPTZ
+);
+CREATE TABLE video_recording_segments (
+    session_id        TEXT NOT NULL REFERENCES video_recordings(session_id),
+    first_sequence    BIGINT NOT NULL CHECK (first_sequence > 0),
+    last_sequence     BIGINT NOT NULL CHECK (last_sequence >= first_sequence),
+    object_key        TEXT NOT NULL UNIQUE,
+    ciphertext_sha256 BYTEA NOT NULL CHECK (octet_length(ciphertext_sha256) = 32),
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (session_id, first_sequence)
+);
+CREATE INDEX idx_video_recording_segments_session_last
+    ON video_recording_segments (session_id, last_sequence);
 
 -- Audit (Audit Service) ------------------------------------------------------
 
@@ -369,6 +404,15 @@ CREATE INDEX IF NOT EXISTS mfa_webauthn_credentials_user_idx ON mfa_webauthn_cre
 
 `005_webauthn_last_used.sql` (ADR-0066) ajoute `last_used_at TIMESTAMPTZ` : la dernière connexion signée par la clé, pour qu'un administrateur sache laquelle révoquer.
 
+`services/access/authentication/migrations/007_identity_provider_bindings.sql` (ADR-0078) : l'émetteur de chaque fournisseur OIDC, retenu à son premier démarrage. Lue et écrite au démarrage seulement, dans une transaction qui tient les lignes (`SELECT … FOR UPDATE`) : deux réplicas qui démarrent ensemble en retiennent un seul. Une ligne ne change que sur un changement déclaré, écrit à l'audit avant.
+
+```sql
+CREATE TABLE IF NOT EXISTS identity_provider_bindings (
+    provider  TEXT PRIMARY KEY,                 -- l'id du fichier ; '' pour les variables OIDC_*
+    issuer    TEXT NOT NULL,                    -- exactement, comme OIDC_ISSUER (ADR-0035)
+    bound_at  TIMESTAMPTZ NOT NULL DEFAULT now());
+```
+
 ### File des alertes à pousser (ADR-0057)
 
 `services/recording-audit/audit-service/migrations/002_alert_outbox.sql` : les alertes qui attendent d'être poussées (ADR-0045), pour qu'un redémarrage de l'Audit Service ne les perde pas. Une ligne par événement ; 256 au plus (borne tenue par le service) ; la ligne disparaît une fois l'alerte livrée ou abandonnée. Le corps est ce que la chaîne contient déjà, sans secret ; la signature est faite à chaque tentative, sa clé n'est pas en base.
@@ -404,7 +448,7 @@ Chaque service porte son schéma en migrations numérotées (`services/<domaine>
 
 ```sql
 CREATE TABLE IF NOT EXISTS schema_migrations (
-    component  TEXT        NOT NULL,   -- authentication, authorization, session-broker, password-vault, audit-service, command-recorder
+    component  TEXT        NOT NULL,   -- authentication, authorization, session-broker, password-vault, audit-service, command-recorder, video-recorder
     version    INTEGER     NOT NULL,   -- NNN du fichier
     name       TEXT        NOT NULL,   -- nom du fichier, ex. 001_init.sql
     checksum   BYTEA       NOT NULL,   -- SHA-256 du texte appliqué : un fichier modifié ensuite est refusé
@@ -438,4 +482,3 @@ Ces tables seront détaillées dans une révision ultérieure de ce document, au
 | `mfa_factors` | MFA Service | Facteurs enrôlés par utilisateur (TOTP, WebAuthn, PKI) |
 | `identity_provider_configs` | Connecteurs de fédération | Configuration LDAP/AD/Entra ID/SAML |
 | `secrets_manager_dynamic` | Secrets Manager | Secrets applicatifs à durée de vie courte, distincts de `vault_secrets` (ADR-0005) |
-| `video_recordings` | Video Recorder | Pointeur vers l'objet MinIO (clé, taille, checksum), pas le flux lui-même |
