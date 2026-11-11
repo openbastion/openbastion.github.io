@@ -2,6 +2,23 @@
 
 Séquencement du périmètre fonctionnel, sans estimation calendaire. Les versions suivent Semantic Versioning (ADR-0063, [`development/versioning.md`](development/versioning.md)) : les anciens jalons « v1.0 » et « v2.0 » sont devenus **v0.0.1** et **v0.0.2**.
 
+## 0. État d'avancement — 9 novembre 2026
+
+La roadmap décrit les jalons de livraison ; elle ne signifie pas qu'une fonction inscrite dans une phase est déjà disponible.
+
+- **MVP SSH/SFTP/SCP** : parcours fonctionnel de référence, avec Gateway, Broker, Vault, proxy SSH, audit et replay texte.
+- **VNC** : parcours de bout en bout validé avec TigerVNC 1.13.1, incluant Gateway, Broker, Vault, proxy écran et Video Recorder. Le replay est disponible par API et dans l'Admin UI (lecteur d'écran enregistré, page « Enregistrements ») ; plusieurs fonctions de redirection restent à faire.
+- **RDP** : moteur Go pur ([ADR-0071](adr/0071-le-proxy-rdp-vnc-termine-la-cible-en-go-pur-et-sert-un-flux-ecran-acquitte.md)), éprouvé contre FreeRDP 3 et Windows Server 2022 en CI :
+  - CredSSP/NTLMv2 avec certificat épinglé avant tout secret ;
+  - image en 15, 16 et 32 bpp, fragments Fast-Path, réactivation ;
+  - clavier QWERTY et AZERTY vérifiés, reprise de session ;
+  - enregistrement rejouable à l'octet, `recording_lost` au-delà de 4 Mio.
+
+  Il est ouvert aux opérateurs **derrière `RDP_ENABLED`, éteint par défaut** ([ADR-0088](adr/0088-rdp-ouvert-aux-operateurs-par-la-route-ecran-derriere-un-interrupteur.md)). Le texte est rendu par bitmaps, sans cache de glyphes ([ADR-0089](adr/0089-le-texte-rdp-reste-rendu-par-bitmaps-sans-cache-de-glyphes.md)). Ni ordres graphiques annoncés, ni canaux virtuels, ni Kerberos, ni RD Gateway : c'est le plan v0.0.2 ([ADR-0090](adr/0090-rdp-v002-glyphes-ordres-canaux-et-protocoles.md), proposé).
+- **Veille externe** : ADR-0081 propose une veille hebdomadaire de gopher-rdp, gordp et Casvisor afin d'identifier les évolutions utiles sans adopter automatiquement leur code ou leurs choix de sécurité.
+
+La source de vérité opérationnelle pour les capacités réellement présentes, leurs tests et leurs limites est [`docs/security/known-limitations.md`](security/known-limitations.md). Toute activation runtime ou preuve d'interopérabilité doit être reflétée ici et dans le README.
+
 ## 1. Principe de séquencement
 
 Deux règles guident l'ordre de livraison :
@@ -37,20 +54,30 @@ Deux règles guident l'ordre de livraison :
 | Domaine | Composants ajoutés |
 |---|---|
 | Proxy | RDP/VNC Proxy, Database Proxy, Kubernetes Proxy |
-| Gouvernance | Workflow Service, Approval Engine (validation N+1, ticket ServiceNow/Jira), Notification Service (Slack/Teams) |
+| Gouvernance | Workflow Service, Approval Engine (validation N+1, ticket ServiceNow/Jira), notifications Slack/Teams (par les services qui les émettent, sans service dédié : ADR-0074) |
 | Sécurité & Intelligence | MFA Service (TOTP, WebAuthn/FIDO2, YubiKey, Passkeys, carte à puce) |
 | Vault | Secrets Manager (secrets applicatifs dynamiques) |
-| Enregistrement & Audit | Video Recorder, Search Engine (OpenSearch) |
+| Enregistrement & Audit | Video Recorder, recherche plein texte des commandes et des sessions, par déchiffrement à la volée dans une fenêtre bornée (ADR-0080 : sans index ni OpenSearch) |
 | Fédération d'identité | LDAP Connector, Active Directory Connector, Entra ID Connector, SAML Connector, SCIM Provisioning |
 | Plateforme | Scheduler complet (rotation planifiée et post-usage) |
 | Clients | User Portal, Desktop Client (Tauri), SDK Go |
 
+**État RDP/VNC dans cette phase** :
+- **VNC** : parcours de bout en bout, rejoué dans l'Admin UI. Ni presse-papiers, ni interopérabilité RealVNC.
+- **RDP** :
+  - critères de sortie de l'incrément 3 d'ADR-0071 tenus contre Windows Server 2022 : session enregistrée et rejouable, texte lisible (par bitmaps, ADR-0089), capacités non annoncées refusées, QWERTY et AZERTY, `recording_lost` au-delà de 4 Mio ;
+  - parcours depuis l'API publique prouvé contre FreeRDP 3 ;
+  - l'ouverture aux opérateurs est le choix de l'exploitant (`RDP_ENABLED`, ADR-0088) ;
+  - restent ouverts : la réactivation, jamais envoyée par Windows, et l'incrément 4 (durcissement et preuves).
+
+Suivre [ADR-0071](adr/0071-le-proxy-rdp-vnc-termine-la-cible-en-go-pur-et-sert-un-flux-ecran-acquitte.md), [ADR-0081](adr/0081-veille-rdp-externe-et-integration-selective.md) et [les limites connues](security/known-limitations.md).
+
 **Explicitement hors périmètre v0.0.1** : Docker Proxy, Hypervisor Console Proxy, WinRM Proxy, Telnet/Serial-IPMI Proxy, HTTP/HTTPS Web Proxy, Risk Engine, Reporting Service, SDK Python/Java/JavaScript.
 
 **Critères de sortie**
-- Une demande d'accès peut être soumise à double validation avec ticket obligatoire et notification Slack/Teams, de bout en bout.
+- Une demande d'accès peut être soumise à double validation avec ticket obligatoire et notification Slack/Teams, de bout en bout. — **Atteint** le 7 novembre 2026 (ADR-0067, ADR-0074) : sur de vrais services, une demande avec ticket et son approbation par une autre personne arrivent dans un vrai Teams et un vrai Slack, signées, sans la justification. Le ticket est vérifié dans son format, pas dans un ITSM : c'est ce qu'ADR-0067 a retenu.
 - Replay vidéo disponible pour les sessions RDP/VNC ; recherche plein texte opérationnelle sur commandes et sessions.
-- Au moins trois fournisseurs d'identité externes fédérés simultanément en environnement de test.
+- Au moins trois fournisseurs d'identité externes fédérés simultanément en environnement de test. — **Atteint** le 7 novembre 2026 (ADR-0076) : un Authentication Service fédère à la fois un vrai OpenLDAP, un vrai Samba AD et deux Dex, chaque compte lié à son fournisseur (`test/integration/identity_providers_flow_test.go`).
 - Helm charts et `docs/deployment/high-availability.md` disponibles pour un déploiement Kubernetes/K3s/OpenShift en production.
 
 ## 4. v0.0.2 — Couverture complète, intelligence et écosystème
@@ -63,6 +90,7 @@ Deux règles guident l'ordre de livraison :
 | Sécurité & Intelligence | Anomaly Detection / Risk Engine (moteur à règles + brique ML optionnelle et détachable) |
 | Enregistrement & Audit | Reporting Service, forensics avancés (détection copier/coller, capture clipboard/transfert de fichiers/impression) |
 | Clients | SDK Python, SDK Java, SDK JavaScript |
+| RDP ([ADR-0090](adr/0090-rdp-v002-glyphes-ordres-canaux-et-protocoles.md), proposé) | Mesures d'abord (débit, encodage, latence) ; ordres graphiques et caches, dont le cache de glyphes ; pipeline graphique RDPGFX sans perte ; canaux virtuels sous ADR-0069 §6 (Display Control, presse-papiers, lecteurs, impression) ; entrée Fast-Path et Unicode, pointeur, reconnexion automatique, redirection de ferme RDS, Kerberos, RD Gateway |
 
 **Critères de sortie**
 - Les six familles de systèmes cibles de `docs/architecture/system-overview.md` sont couvertes.
@@ -78,7 +106,7 @@ Deux règles guident l'ordre de livraison :
 | Authorization Service | ✅ (RBAC) | ABAC | |
 | Session Broker | ✅ | | |
 | SSH/SFTP/SCP Proxy | ✅ | | |
-| RDP/VNC Proxy | | ✅ | |
+| RDP/VNC Proxy | | ✅ VNC E2E ; RDP derrière `RDP_ENABLED`, éteint par défaut (ADR-0088) | RDP : glyphes, ordres, canaux virtuels, protocoles (ADR-0090) |
 | Database Proxy | | ✅ | |
 | Kubernetes Proxy | | ✅ | |
 | Docker Proxy | | | ✅ |
@@ -90,13 +118,13 @@ Deux règles guident l'ordre de livraison :
 | Secrets Manager | | ✅ | |
 | Session Recorder | ✅ | | |
 | Command Recorder | ✅ | | |
-| Video Recorder | | ✅ | |
+| Video Recorder | | ⚠️ (pipeline VNC E2E ; lecteur UI restant) | |
 | Audit Service | ✅ | | |
-| Search Engine | | ✅ | |
+| Recherche plein texte (ADR-0080, sans OpenSearch) | | ✅ | |
 | Reporting Service | | | ✅ |
 | Workflow Service | | ✅ | |
 | Approval Engine | | ✅ | |
-| Notification Service | | ✅ | |
+| Notifications Slack/Teams | | ✅ (ADR-0074 ; vrais Teams et Slack : alertes de l'Audit Service, break-glass et demandes avec ticket du Broker, et leurs approbations) | |
 | MFA Service | | ✅ (TOTP, ADR-0062, et WebAuthn, ADR-0065, livrés dans l'Authentication Service) | |
 | Anomaly Detection / Risk Engine | | | ✅ |
 | OIDC Connector | ✅ | | |
@@ -119,4 +147,3 @@ Deux règles guident l'ordre de livraison :
 |---|---|
 | Le MVP mono-protocole (SSH) ne convainc pas des utilisateurs déjà équipés d'un PAM commercial couvrant RDP/DB dès le premier jour | Communiquer le MVP comme une preuve d'architecture, pas comme un produit de remplacement immédiat |
 | `pkg/proxycore` (ADR-0006) conçu pour SSH seul en MVP pourrait nécessiter un refactoring lors de l'ajout de RDP en v0.0.1 | Concevoir l'interface `Codec` dès le MVP en anticipant au moins un second protocole (RDP), sans l'implémenter |
-| Fédération d'identité limitée à OIDC en MVP peut bloquer des pilotes en entreprise déjà en AD pur | Prioriser LDAP/AD en tout début de v0.0.1 plutôt qu'en fin de phase |

@@ -256,7 +256,8 @@ service VaultAccountAdmin {
   rpc OnboardAccount(OnboardAccountRequest) returns (PrivilegedAccount);
   rpc GetAccount(GetAccountRequest) returns (PrivilegedAccount);
   rpc RotateSecret(RotateSecretRequest) returns (RotateSecretResponse);
-  rpc SetHostKey(SetHostKeyRequest) returns (SetHostKeyResponse);   // épingle ou ré-épingle la clé d'hôte (ADR-0039), audité avant
+  rpc SetHostKey(SetHostKeyRequest) returns (SetHostKeyResponse);   // clé SSH épinglée (ADR-0039), audité avant
+  rpc SetTLSPin(SetTLSPinRequest) returns (SetTLSPinResponse);       // certificat TLS + nom de cible (ADR-0071), audité avant
 }
 
 message AuthorizeScopeRequest {
@@ -273,8 +274,9 @@ message AuthorizeScopeResponse {
 }
 
 // Un refus d'AuthorizeScope porte un code stable (ADR-0042) — en HTTP/JSON, le corps
-// {"code": …, "error": …} : "no_pinned_host_key" (409, ADR-0039), "refused" (403). Le code est
-// le contrat ; le texte ne l'est pas, et ne va jamais jusqu'à un client.
+// {"code": …, "error": …} : "no_pinned_host_key" (409, SSH/ADR-0039), "no_pinned_tls_pin"
+// (409, VNC/RDP/ADR-0071) ou "refused" (403). Le code est le contrat ; le texte
+// ne l'est pas, et ne va jamais jusqu'à un client.
 
 message FetchCredentialRequest {
   string scope_token = 1;          // émis par AuthorizeScope, à usage unique
@@ -285,8 +287,11 @@ message FetchCredentialResponse {
   bytes credential_material = 1;   // en mémoire uniquement côté appelant ; jamais journalisé
   string credential_type = 2;      // ex. "ssh_private_key", "password"
   google.protobuf.Timestamp valid_until = 3;
-  string target_host = 4;          // la cible pour laquelle le secret est donné : le proxy refuse une session qui en nomme une autre (ADR-0039)
-  string host_key = 5;             // clé d'hôte épinglée de la cible ("ssh-ed25519 AAAA…") : le secret n'est envoyé qu'à qui la présente (ADR-0039)
+  string target_host = 4;          // cible liée au secret (ADR-0039)
+  string host_key = 5;             // clé SSH épinglée, utilisée seulement par le moteur SSH (ADR-0039)
+  string target_user = 6;          // nom du compte cible pour RDP/VNC (ADR-0071)
+  string tls_certificate_sha256 = 7; // empreinte SHA-256 du certificat feuille épinglé
+  string target_domain = 8;        // nom DNS/IP vérifié dans le certificat TLS
 }
 
 message OnboardAccountRequest {
@@ -295,10 +300,10 @@ message OnboardAccountRequest {
   string name = 3;
   string username = 4;
   string target_host = 5;
-  string protocol = 6;             // ex. "ssh" — énumération étendue en v0.0.1/v0.0.2 (docs/architecture/data-architecture.md §3)
+  string protocol = 6;             // "ssh" | "vnc" | "rdp" (ADR-0071)
   string rotation_policy = 7;      // "manual" | "post_use" | "scheduled"
   bytes initial_secret = 8;        // vide = généré automatiquement (même règle que RotateSecretRequest.new_secret)
-  string host_key = 9;             // obligatoire : la clé d'hôte publique de la cible, relevée sur la cible (ADR-0039)
+  string host_key = 9;             // obligatoire pour SSH ; vide pour VNC/RDP, où SetTLSPin est requis (ADR-0071)
   string reconciliation_account_id = 10; // ADR-0037 ; obligatoire pour "scheduled"
   int32 rotation_interval_days = 11;     // 1..365 pour "scheduled", 0 sinon (ADR-0040)
 }
@@ -325,6 +330,8 @@ message PrivilegedAccount {
   int32 rotation_interval_days = 11;     // compte "scheduled" (ADR-0040)
   google.protobuf.Timestamp next_rotation_at = 12;  // compte "scheduled" : son échéance
   int32 rotation_failures = 13;          // rotations planifiées échouées d'affilée (ADR-0041)
+  string tls_certificate_sha256 = 14; // empreinte SHA-256 du certificat TLS feuille (vide avant pinning)
+  string target_domain = 15;          // nom DNS/IP attendu dans le certificat TLS (vide avant pinning)
 }
 
 message SetHostKeyRequest {
@@ -335,6 +342,18 @@ message SetHostKeyRequest {
 
 message SetHostKeyResponse {
   string host_key_fingerprint = 1;
+}
+
+message SetTLSPinRequest {
+  openbastion.common.v1.RequestContext context = 1;
+  string account_id = 2;
+  string tls_certificate_sha256 = 3;
+  string target_domain = 4;
+}
+
+message SetTLSPinResponse {
+  string tls_certificate_sha256 = 1;
+  string target_domain = 2;
 }
 
 message RotateSecretRequest {
@@ -361,8 +380,8 @@ option go_package = "github.com/openbastion/openbastion/proto/recording/v1;recor
 
 service SessionRecording {
   rpc StreamCommandEntries(stream CommandEntry) returns (StreamAck);
-  // Signature réservée pour l'ajout du Video Recorder en v0.0.1 — ne rompt pas
-  // le contrat existant.
+  // Ancienne signature conservée pour compatibilité, non servie. L'ingestion
+  // vidéo acquittée utilise VideoRecording.StreamVideoSegments.
   rpc StreamVideoFrames(stream VideoFrame) returns (StreamAck);
 }
 
@@ -550,9 +569,16 @@ sequenceDiagram
 | `VaultAccountAdmin` | Administration UI/API Gateway | Vault | Non |
 | `SessionRecording` | Proxy protocolaire | Command Recorder | Non (mais le texte d'une commande saisie peut en contenir un — voir §6) |
 | `SessionRecordingQuery` | API Gateway | Command Recorder | Non (idem : le replay est une donnée sensible) |
+| `VideoRecording` | Proxy RDP, API Gateway | Video Recorder | Non (les images enregistrées peuvent contenir des secrets visibles) |
 | `AuditIngestion` | Tout service | Audit Service | Non |
 | `Authorization` | Session Broker, API Gateway | Authorization Service | Non |
 
-## 11. Le seul point où un secret existe
+## 11. Le seul RPC qui transporte un credential de cible en clair
 
-`VaultCredentialIssuance.FetchCredential` matérialise, au niveau du contrat de plus bas niveau documenté, l'invariant posé dès le premier document (`docs/architecture/principles.md`) et vérifié à chaque étage depuis : c'est le seul point de tout le système, du diagramme de contexte jusqu'au champ Protobuf, où un secret existe.
+`VaultCredentialIssuance.FetchCredential` est le seul RPC qui transporte le credential de la cible en clair. Les images du Video Recorder restent des données sensibles chiffrées au repos et ne transitent pas par ce RPC.
+
+## 12. Proxy RDP/VNC / Gateway → Video Recorder — `VideoRecording`
+
+Le service gRPC est défini dans `proto/recording/v1/recording.proto`. `StreamVideoSegments` accepte un flux bidirectionnel de segments PNG ordonnés ; chaque acquittement est émis après chiffrement de l'objet, écriture S3-compatible et commit des métadonnées PostgreSQL. Seule l'identité mTLS `rdp-vnc-proxy` peut ingérer ou sonder `CheckReadiness`. Ce proxy n'est pas encore implémenté : aucune session RDP n'est actuellement enregistrée.
+
+`GetVideoSegment` est réservé à l'identité mTLS `api-gateway`. La Gateway ne transmet au Recorder que l'utilisateur et les rôles tirés du jeton vérifié. Le Recorder consulte Authorization (`recording:session:read`) et écrit `recording.read` à l'Audit Service avant de déchiffrer ou de servir un segment ; toute panne ou tout refus ferme la lecture. La route publique est `GET /sessions/{sessionId}/recording/video/segments/{firstSequence}` (voir `docs/api/rest/openapi.yaml`) ; le stockage objet et ses identifiants ne sont jamais exposés au navigateur.

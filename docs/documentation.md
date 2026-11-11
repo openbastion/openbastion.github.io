@@ -1,6 +1,6 @@
 # Documentation OpenBastion
 
-OpenBastion est un PAM (Privileged Access Management) open source sous licence Apache 2.0 : l'opérateur n'a jamais le mot de passe de la cible, toute connexion passe par un proxy, toute session est enregistrée et auditée. Le MVP couvre SSH, SFTP et SCP de bout en bout ; le reste du périmètre est sur la [feuille de route](roadmap.md).
+OpenBastion est un PAM (Privileged Access Management) open source sous licence AGPL-3.0 : l'opérateur n'a jamais le mot de passe de la cible, toute connexion passe par un proxy, toute session est enregistrée et auditée. Le MVP couvre SSH, SFTP et SCP de bout en bout ; le reste du périmètre est sur la [feuille de route](roadmap.md).
 
 Une page de cette documentation décrit ce que fait le code. Ce qui est prévu sans être construit n'a pas de page : il est listé dans le `README.md` de la section, avec le point de la feuille de route qui le couvre. L'état réel, les chiffres de tests et les écarts connus sont tenus dans [`NOTES_SANDBOX.md`](https://github.com/openbastion/openbastion/blob/main/NOTES_SANDBOX.md) ; les limites de sécurité du MVP, dans [`security/known-limitations.md`](security/known-limitations.md).
 
@@ -19,7 +19,7 @@ Une page de cette documentation décrit ce que fait le code. Ce qui est prévu s
 | Dossier | Contenu |
 |---|---|
 | [`architecture/`](architecture/index.md) | Vue d'ensemble, principes et invariant, C4 (contexte, conteneurs, composants), déploiement, modèle de données |
-| [`adr/`](adr/index.md) | Les décisions d'architecture, un fichier par ADR (ADR-0001 à ADR-0067) |
+| [`adr/`](adr/index.md) | Les décisions d'architecture, un fichier par ADR (ADR-0001 à ADR-0072) |
 | [`api/`](api/index.md) | Conventions, spécification OpenAPI de l'API publique, contrats entre services |
 | [`security/`](security/index.md) | Modèle de menace, sécurité par domaine, limites connues |
 | [`development/`](development/index.md) | Prérequis, environnement local, arborescence, tests, contribution |
@@ -28,6 +28,10 @@ Une page de cette documentation décrit ce que fait le code. Ce qui est prévu s
 | [`user-guide/`](user-guide/index.md) | Le parcours de l'opérateur |
 | [`operations/`](operations/index.md) | Index : ce qui existe ailleurs, et les pages prévues |
 | [`compliance/`](compliance/index.md) | Index : ce qui existe ailleurs, et les pages prévues |
+
+## Licences et provenance
+
+La licence du projet, les notices tierces, l'inventaire des Agent Skills, les contrôles CI et la disponibilité du code source sont décrits dans [`licensing/`](licensing/index.md).
 
 ## Ancien document → nouveau fichier
 

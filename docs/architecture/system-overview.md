@@ -55,7 +55,7 @@ graph TB
         VR[Video Recorder]
         CR[Command Recorder]
         AUD[Audit Service]
-        SE[Search Engine — OpenSearch]
+        SE[Recherche — déchiffrement borné, ADR-0080]
         REP[Reporting Service]
     end
 
@@ -122,10 +122,10 @@ Tous ces proxies partagent un **pipeline commun** (ADR-0006 ; l'invariant qu'il 
 | Service | Responsabilité |
 |---|---|
 | **Session Recorder** | Orchestration du cycle de vie d'un enregistrement (démarrage, métadonnées, chiffrement, indexation) ; agrège les flux clipboard/transfert de fichiers/impression capturés par les proxies. |
-| **Video Recorder** | Capture pixel (RDP/VNC/consoles graphiques) → artefacts vidéo compressés dans MinIO, rejouables. |
+| **Video Recorder** | Segments PNG ordonnés, chiffrés avant stockage S3-compatible, métadonnées PostgreSQL et replay audité. Le proxy RDP producteur et le lecteur Admin UI ne sont pas encore implémentés (ADR-0069/0070). |
 | **Command Recorder** | Capture texte (SSH/Telnet/DB/K8s exec) → log structuré recherchable commande par commande. |
 | **Audit Service** | Journal immuable et signé de toute action système (connexion, déconnexion, commande, upload/download, escalade, rotation, config, workflow, appel API). |
-| **Search Engine** | Indexation OpenSearch — recherche plein texte, par utilisateur, serveur, commande, date, à travers sessions et audit. |
+| **Search Engine** | Recherche plein texte des commandes (par le Command Recorder, qui déchiffre à la volée les sessions d'une fenêtre de 31 jours au plus) et des sessions (par le Session Broker, sur leurs métadonnées) : ADR-0080. Aucun index ni OpenSearch : les commandes ne sortent jamais de leur enveloppe. |
 | **Reporting Service** | Rapports de conformité, exports périodiques, tableaux de bord agrégés. |
 
 ### Gouvernance : workflow, approbation, notification
@@ -134,7 +134,7 @@ Tous ces proxies partagent un **pipeline commun** (ADR-0006 ; l'invariant qu'il 
 |---|---|
 | **Workflow Service** | Machine à états de la demande d'accès : requête → validation → fenêtre temporelle → octroi → expiration automatique. |
 | **Approval Engine** | Évalue les politiques d'approbation (validation N+1, double validation, justification obligatoire, ticket ServiceNow/Jira requis). |
-| **Notification Service** | Relaye les demandes/décisions vers Slack, Teams, email, webhooks. |
+| **Notification Service** | Relaye les demandes/décisions vers Slack, Teams, email, webhooks. Pas de service dédié aujourd'hui : le Broker et l'Audit Service émettent eux-mêmes (ADR-0074). |
 
 ### Sécurité et intelligence
 
@@ -149,7 +149,7 @@ Tous ces proxies partagent un **pipeline commun** (ADR-0006 ; l'invariant qu'il 
 |---|---|
 | **LDAP Connector** | Authentification et synchronisation annuaire LDAP/OpenLDAP générique. |
 | **Active Directory Connector** | Idem, spécificités AD (groupes, Kerberos). |
-| **Entra ID Connector** | Fédération Microsoft Entra ID (OIDC/SAML + Graph API pour le provisioning). |
+| **Entra ID Connector** | Fédération Microsoft Entra ID : un profil OIDC lié à un tenant déclaré (ADR-0079), dans l'Authentication Service. Ni SAML, ni Graph API, ni provisioning à ce jour. |
 | **OpenID Connect Connector** | Fédération OIDC/OAuth2 générique (tout IdP conforme). |
 | **SAML Connector** | Fédération SAML 2.0 générique. |
 | **SCIM Provisioning Service** | Provisionnement/déprovisionnement automatique des identités et groupes. |
@@ -229,10 +229,10 @@ sequenceDiagram
 | Client desktop | Tauri |
 | Base de données relationnelle | PostgreSQL |
 | Cache | Redis |
-| Recherche | OpenSearch |
+| Recherche | Déchiffrement à la volée, borné (ADR-0080) ; pas d'OpenSearch |
 | Bus temps réel | NATS |
 | Streaming durable | Kafka |
-| Stockage objet | MinIO |
+| Stockage objet | API S3-compatible (SeaweedFS en Compose ; endpoint externe configurable) |
 | Service mesh (data plane) | Envoy |
 | Reverse proxy / edge | Traefik |
 | Observabilité | Prometheus, Grafana, Loki, Tempo, OpenTelemetry |
@@ -243,7 +243,7 @@ sequenceDiagram
 ## Exigences non fonctionnelles (aperçu)
 
 Ces points seront détaillés dans les guides `docs/deployment/high-availability.md` et `docs/deployment/disaster-recovery.md` ; à ce stade, ils orientent déjà des choix structurants :
-- **Haute disponibilité** : tous les microservices sont conçus stateless-first, état externalisé (PostgreSQL, Redis, MinIO), permettant réplication horizontale.
+- **Haute disponibilité** : tous les microservices sont conçus stateless-first, état externalisé (PostgreSQL, Redis, stockage objet S3-compatible), permettant réplication horizontale.
 - **Scalabilité** : la couche proxy est le composant le plus consommateur en ressources (sessions actives) — dimensionnement indépendant du reste du système.
 - **Reprise d'activité** : la séparation Vault / Audit / Session store permet des stratégies de sauvegarde et de restauration différenciées selon la criticité.
 
@@ -254,4 +254,4 @@ Ces points seront détaillés dans les guides `docs/deployment/high-availability
 | Complexité opérationnelle du double bus (NATS + Kafka) | Charge d'exploitation accrue | ADR dédié, runbooks d'exploitation |
 | Surface d'attaque de la couche proxy (point de détention des secrets) | Critique | Durcissement, scoping Vault strict par proxy, purge mémoire, tests de sécurité dédiés |
 | Dépendance à des connecteurs d'identité tiers hétérogènes (AD, Entra ID, SAML, OIDC) | Risque d'incohérence de mapping des identités | Modèle d'identité canonique interne + SCIM comme source de vérité de provisioning |
-| Volume de données d'enregistrement de session (vidéo + commande) | Coût de stockage, rétention | Politique de rétention configurable, compression, cycle de vie MinIO |
+| Volume de données d'enregistrement de session (vidéo + commande) | Coût de stockage, rétention | Politique de rétention configurable et cycle de vie du stockage objet |
