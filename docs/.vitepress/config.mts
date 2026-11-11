@@ -18,6 +18,7 @@ const SECTIONS = [
   { dir: 'development', label: 'Développement', collapsed: true },
   { dir: 'operations', label: 'Exploitation', collapsed: true },
   { dir: 'compliance', label: 'Conformité', collapsed: true },
+  { dir: 'licensing', label: 'Licences et SBOM', collapsed: true },
 ]
 
 /**
@@ -116,6 +117,7 @@ export default withMermaid(
         { text: 'Sécurité', link: '/security/' },
         { text: 'Déploiement', link: '/deployment/' },
         { text: 'ADR', link: '/adr/' },
+        { text: 'Licences', link: '/licensing/' },
       ],
       sidebar: [
         {

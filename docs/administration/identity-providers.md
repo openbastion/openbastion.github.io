@@ -52,4 +52,65 @@ LDAP_GROUP_BASE_DN=DC=example,DC=com
 LDAP_ROLE_MAP_FILE=/etc/openbastion/ldap-roles.json
 ```
 
-*v0.0.1, à venir* — Entra ID, SAML et SCIM (`docs/architecture/system-overview.md`). Ce document sera mis à jour à leur livraison.
+## Plusieurs fournisseurs à la fois (ADR-0076)
+
+Les variables ci-dessus déclarent **un** émetteur OIDC et **un** annuaire. Pour en servir plusieurs en même temps (par exemple Active Directory, OpenLDAP et deux émetteurs OIDC), déclarez-les tous dans un fichier, `IDENTITY_PROVIDERS_FILE`, et retirez les variables `OIDC_*` et `LDAP_*` : **les deux ensemble, le service refuse de démarrer**.
+
+> **Avant de passer au fichier : les comptes existants.** Les comptes créés par les variables (`oidc:<sub>`, `ldap:<identifiant>`) **ne peuvent plus se connecter** après le passage, sauf si une entrée les reprend avec `"adopt_legacy_accounts": true` (une entrée de chaque type au plus, et seulement celle **du même fournisseur** qu'avant : ADR-0078 refuse le démarrage sinon). Le démarrage dit combien de comptes ne sont repris par aucune entrée. Détail ci-dessous.
+
+```json
+{
+  "oidc": [
+    {"id": "corp", "label": "Compte Corp", "issuer": "https://login.corp.example", "client_id": "openbastion",
+     "client_secret_file": "/run/secrets/corp-oidc-secret", "redirect_url": "https://bastion.example/ui/oidc/callback",
+     "role_map_file": "/etc/openbastion/corp-roles.json", "groups_claim": "groups", "adopt_legacy_accounts": true}
+  ],
+  "directories": [
+    {"id": "corp-ad", "label": "Active Directory", "url": "ldaps://dc1.example.com:636", "schema": "ad",
+     "bind_dn": "CN=svc-bastion,OU=Service Accounts,DC=example,DC=com", "bind_password_file": "/run/secrets/ad-bind-password",
+     "user_base_dn": "OU=People,DC=example,DC=com", "group_base_dn": "DC=example,DC=com", "role_map_file": "/etc/openbastion/ad-roles.json"},
+    {"id": "labs", "label": "Annuaire des laboratoires", "url": "ldap://ldap.labs.example:389", "ca_file": "/etc/openbastion/labs-ca.pem",
+     "schema": "rfc", "bind_dn": "cn=svc,dc=labs,dc=example", "bind_password_file": "/run/secrets/labs-bind-password",
+     "user_base_dn": "ou=people,dc=labs,dc=example", "group_base_dn": "ou=groups,dc=labs,dc=example", "role_map_file": "/etc/openbastion/labs-roles.json"}
+  ]
+}
+```
+
+- **L'identifiant (`id`) lie les comptes à leur fournisseur** : `[a-z0-9-]`, 1 à 32 caractères, unique dans le fichier. **Ne le réutilisez jamais pour un autre fournisseur, et ne changez pas l'émetteur ou l'annuaire d'un identifiant existant** : les comptes de cet identifiant seraient ceux du nouveau. Pour un émetteur OIDC, le service le refuse au démarrage ([ci-dessous](#chaque-fournisseur-oidc-garde-son-émetteur-adr-0078)) ; pour un annuaire, rien ne l'en empêche. Pour un nouveau fournisseur, un nouvel identifiant. Le libellé (`label`, 1 à 64 caractères) est ce que l'écran de connexion affiche.
+- **Les comptes** s'appellent `oidc:<id>:<sub>` et `ldap:<id>:<identifiant stable>` : le même `sub` chez deux émetteurs donne deux comptes. Les rôles viennent de la table de **ce** fournisseur seulement.
+- **Les comptes existants** (créés par les variables) s'appellent `oidc:<sub>` et `ldap:<identifiant>`. En passant au fichier, **une entrée de chaque type au plus** peut les reprendre avec `"adopt_legacy_accounts": true`. Sans cette déclaration, ils ne peuvent plus se connecter, et le démarrage le dit (« made before ADR-0076 belong to no entry »). Ne reprenez les comptes qu'avec l'entrée **du même fournisseur** qu'avant.
+- **Le fichier tout entier, ou rien** : une entrée invalide, un identifiant en double, deux entrées avec le même émetteur (ou le même annuaire et la même base), plus de 16 fournisseurs, une table illisible, un secret lisible par d'autres, un émetteur OIDC injoignable — **refus de démarrer**, sans aucun secret dans le message. Le fichier ne contient pas de secret, mais **il ne doit être modifiable que par son propriétaire** (`0644` au plus) : qui peut l'écrire peut déclarer un fournisseur qui donne `platform-admin`. Un annuaire injoignable, lui, n'arrête pas le service : ses connexions répondent `503`.
+- **L'utilisateur choisit** : `POST /auth/oidc/start` prend `{"provider": "<id>"}` et `POST /auth/ldap/login` prend `"directory": "<id>"`, obligatoires dès qu'il y en a plusieurs (`400` sinon). OpenBastion n'essaie **jamais** les annuaires l'un après l'autre : le mot de passe d'un utilisateur ne part que vers l'annuaire qu'il a choisi. `GET /auth/oidc` et `GET /auth/ldap` donnent la liste `[{id, label}]` à l'écran de connexion, rien d'autre.
+- **Le retour OIDC s'échange chez le fournisseur où la connexion a commencé**, jamais ailleurs : un code d'un autre fournisseur est refusé (`401`). Déclarez chez chaque fournisseur l'URL de retour de son entrée.
+- **Second facteur** : le code d'enrôlement d'un compte d'annuaire du fichier se donne pour son annuaire, `openbastion-cli mfa enrollment-code -authn … -directory alice -directory-id corp-ad` ([`second-factor.md`](second-factor.md)).
+
+## Chaque fournisseur OIDC garde son émetteur (ADR-0078)
+
+Un `sub` n'est unique que chez son émetteur. Le service retient donc, au premier démarrage, l'émetteur de chaque fournisseur OIDC : celui de chaque `id` du fichier, et celui des variables `OIDC_*` (le fournisseur `''`). Le journal le dit (« bound to the issuer … »).
+
+- **Un autre émetteur sous le même fournisseur fait refuser le démarrage.** Cela vaut pour `OIDC_ISSUER` changé, pour l'émetteur d'une entrée du fichier, et pour une entrée qui reprend les comptes des variables (`adopt_legacy_accounts`) sans être leur émetteur. Aucun compte n'est touché, et le message dit comment en sortir.
+- **Un nouveau fournisseur prend un nouvel `id`.** Un `id` retiré du fichier n'est pas libéré : le redéclarer avec un autre émetteur est refusé.
+- **Le même fournisseur sous une nouvelle URL** (un changement de nom de domaine, avec les mêmes `sub`) se déclare. Dans le fichier, ajoutez `"previous_issuer": "<l'émetteur retenu>"` à l'entrée ; avec les variables, `OIDC_PREVIOUS_ISSUER`. Le changement n'est accepté que si cet émetteur est **exactement** celui retenu. Il est écrit à l'audit (`auth.identity_provider_rebound`, avec les deux émetteurs) **avant** d'être retenu : **l'Audit Service doit répondre à ce démarrage-là**, sinon le service refuse de démarrer et rien ne change. Ensuite, retirez la déclaration (le journal le rappelle).
+- **Déclarer un changement, c'est affirmer que le nouvel émetteur parle pour les mêmes personnes.** OpenBastion ne peut pas le vérifier ; il le consigne. Ne le déclarez pas pour un autre fournisseur.
+- **Les annuaires ne sont pas concernés** : leurs comptes sont retrouvés par `objectGUID` ou `entryUUID`, uniques par construction, et leur adresse peut changer.
+- **Le premier émetteur retenu est celui du premier démarrage avec cette version.** Un changement d'émetteur fait avant ne peut pas être détecté.
+
+## Microsoft Entra ID (ADR-0079)
+
+Entra ID est une entrée `oidc` du fichier, de profil `entra`, liée à **un** tenant déclaré. Le flux est celui d'OIDC (code d'autorisation, PKCE), avec les mêmes contrôles de jeton, le même verrou d'émetteur (ADR-0078) et une table de rôles propre à l'entrée.
+
+```json
+{"id": "corp-entra", "label": "Microsoft", "profile": "entra", "tenant_id": "11111111-2222-4333-8444-555555555555",
+ "issuer": "https://login.microsoftonline.com/11111111-2222-4333-8444-555555555555/v2.0", "client_id": "<id de l'application>",
+ "client_secret_file": "/run/secrets/entra-secret", "redirect_url": "https://bastion.example/ui/oidc/callback",
+ "role_map_file": "/etc/openbastion/entra-roles.json"}
+```
+
+- **Un tenant, et son émetteur v2 exactement.** `tenant_id` est le GUID du tenant, en minuscules. `issuer` est `https://login.microsoftonline.com/<tenant_id>/v2.0`, au caractère près. `common`, `organizations`, `consumers`, un nom de domaine, l'émetteur v1 (`sts.windows.net`) ou celui d'un autre tenant : **refus de démarrer**. Un `tenant_id` sans `"profile": "entra"` aussi. Pour deux tenants, deux entrées : le même `sub` y donne deux comptes.
+- **Chaque jeton doit porter ce tenant** (`tid`). Un jeton sans `tid`, ou d'un autre tenant, est refusé (`401`) avant toute création ou reprise de compte.
+- **Les groupes viennent du jeton.** Déclarez-les dans l'application Entra (*Token configuration* → *Add groups claim*, ou `groupMembershipClaims` dans le manifeste) : OpenBastion ne demande pas de scope `groups`, et ne lit que le claim de groupes (`groups_claim`, `groups` par défaut). Les valeurs sont celles qu'Entra met dans le jeton, en général les identifiants (GUID) des groupes : ce sont eux que la table des rôles nomme.
+- **Les rôles viennent de la table de l'entrée seulement.** Un claim `roles` ou un rôle d'application Entra ne donne rien. Un groupe absent de la table ne donne rien. Sans aucun groupe de la table : `403`, aucun compte.
+- **Trop de groupes : refus.** Quand un utilisateur a plus de groupes qu'un jeton n'en porte, Entra remplace la liste par une référence à Microsoft Graph (`_claim_names` qui nomme les groupes, ou `hasgroups`). OpenBastion refuse alors la connexion (`401`) et **ne suit jamais** cette référence : aucune permission Graph n'est demandée. Réduisez les groupes émis (par exemple *Groups assigned to the application*) pour ces utilisateurs.
+- **Les variables `OIDC_*` ne sont jamais Entra ID** : seul le fichier déclare ce profil.
+
+*v0.0.1, à venir* — SAML et SCIM (`docs/architecture/system-overview.md`). Ce document sera mis à jour à leur livraison.

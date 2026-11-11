@@ -78,3 +78,26 @@ Chaque ADR suit un gabarit léger (inspiré de Michael Nygard / MADR) : **Contex
 | [ADR-0066](0066-une-cle-de-secours-s-ajoute-avec-la-cle-actuelle-et-un-code-d-administrateur.md) | Une clé de secours s'ajoute avec la signature de la clé actuelle et un code d'administrateur ; un administrateur révoque une seule clé | Accepté |
 | [ADR-0067](0067-une-session-vers-un-compte-qui-l-exige-attend-l-approbation-d-une-autre-personne-avec-un-ticket.md) | Une session vers un compte qui l'exige attend l'approbation d'une autre personne, et porte un ticket au format déclaré | Accepté |
 | [ADR-0068](0068-les-details-d-un-evenement-d-audit-sont-bornes-et-proteges-par-le-hash.md) | Les détails d'un événement d'audit sont bornés et protégés par le hash | Accepté |
+| [ADR-0069](0069-le-proxy-rdp-verifie-la-cible-et-refuse-les-sessions-non-enregistrees.md) | Le proxy RDP vérifie la cible et refuse les sessions non enregistrées | Accepté |
+| [ADR-0070](0070-le-video-recorder-acquitte-des-segments-chiffres-avant-de-les-servir.md) | Le Video Recorder acquitte des segments chiffrés avant de les servir | Accepté |
+| [ADR-0071](0071-le-proxy-rdp-vnc-termine-la-cible-en-go-pur-et-sert-un-flux-ecran-acquitte.md) | Le proxy RDP/VNC termine la cible en Go pur et sert un flux écran acquitté | Accepté, mise en œuvre en cours |
+| [ADR-0072](0072-la-cli-cobra-et-une-version-homogene-pour-chaque-binaire.md) | Les exécutables OpenBastion adoptent Cobra et exposent une version de build homogène | Accepté |
+| [ADR-0073](0073-l-admin-ui-adopte-un-systeme-de-conception-et-une-experience-operateur-progressive.md) | L'Admin UI adopte un système de conception cohérent et une expérience opérateur progressive | Proposé |
+| [ADR-0074](0074-slack-et-teams-recoivent-les-notifications-dans-leur-format-sans-nouveau-service.md) | Slack et Teams reçoivent les notifications dans leur format, sans nouveau service | Accepté |
+| [ADR-0075](0075-architecture-du-user-portal-et-socle-frontend-partage.md) | Architecture du User Portal et socle frontend partagé | Proposé |
+| [ADR-0076](0076-plusieurs-fournisseurs-d-identite-chaque-compte-lie-au-sien.md) | Plusieurs fournisseurs d'identité à la fois, chaque compte lié au sien | Accepté |
+| [ADR-0077](0077-modulariser-les-workflows-github-actions-derriere-une-porte-de-validation-stable.md) | Modulariser les workflows GitHub Actions derrière une porte de validation stable | Accepté |
+| [ADR-0078](0078-chaque-fournisseur-oidc-garde-son-emetteur-un-changement-se-declare.md) | Chaque fournisseur OIDC garde son émetteur ; un changement se déclare | Accepté |
+| [ADR-0079](0079-entra-id-est-un-profil-oidc-lie-a-un-tenant-declare.md) | Entra ID est un profil OIDC lié à un tenant déclaré | Accepté |
+| [ADR-0080](0080-la-recherche-plein-texte-dechiffre-a-la-volee-dans-une-fenetre-bornee.md) | La recherche plein texte déchiffre à la volée, dans une fenêtre bornée, sans index en clair | Accepté, mise en œuvre en cours |
+| [ADR-0081](0081-veille-rdp-externe-et-integration-selective.md) | Veille RDP externe et intégration sélective des enseignements | Proposé |
+| [ADR-0082](0082-rsync-distant-passe-par-le-proxy-ssh-sans-shell-arbitraire.md) | rsync distant passe par le proxy SSH, sans shell arbitraire | Proposé |
+| [ADR-0083](0083-bibliotheque-ssh-openbastion-avec-politiques-capture-et-audit.md) | La bibliothèque SSH OpenBastion intègre politiques, capture et audit au cycle protocolaire | Proposé |
+| [ADR-0084](0084-bibliotheque-rdp-openbastion-moteur-protocolaire-instrumente.md) | La bibliothèque RDP OpenBastion sépare le moteur protocolaire des contrôles PAM | Proposé |
+| [ADR-0085](0085-bibliotheque-vnc-openbastion-moteur-rfb-instrumente.md) | La bibliothèque VNC OpenBastion sépare RFB des contrôles PAM et de l'enregistrement | Proposé |
+| [ADR-0086](0086-le-client-rdp-decode-15-et-16-bpp-pour-les-cibles-windows-par-defaut.md) | Le client RDP décode 15 et 16 bpp, pour les cibles Windows laissées par défaut | Accepté, mise en œuvre en cours |
+| [ADR-0087](0087-contrats-transverses-des-bibliotheques-protocolaires-ssh-rdp-vnc.md) | Les bibliothèques SSH, RDP et VNC partagent des contrats PAM sans partager leurs moteurs protocolaires | Proposé |
+| [ADR-0088](0088-rdp-ouvert-aux-operateurs-par-la-route-ecran-derriere-un-interrupteur.md) | RDP est ouvert aux opérateurs par la route écran de VNC, derrière un interrupteur éteint par défaut | Accepté, mise en œuvre en cours |
+| [ADR-0089](0089-le-texte-rdp-reste-rendu-par-bitmaps-sans-cache-de-glyphes.md) | Le texte RDP reste rendu par bitmaps : le cache de glyphes n'est pas implémenté tant qu'une mesure ne le demande pas | Accepté |
+| [ADR-0090](0090-rdp-v002-glyphes-ordres-canaux-et-protocoles.md) | RDP en v0.0.2 : glyphes, ordres graphiques, canaux virtuels et protocoles, par incréments prouvés | Proposé |
+| [ADR-0091](0091-le-pointeur-est-dessine-dans-l-image-enregistree.md) | Le pointeur est dessiné dans l'image, celle que l'opérateur voit et que l'auditeur rejoue | Accepté |

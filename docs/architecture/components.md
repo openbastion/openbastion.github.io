@@ -37,7 +37,7 @@ C4Component
 
     Container_Boundary(proxy, "Couche Proxy") {
         Component(ssh, "SSH/SFTP/SCP Proxy", "Go")
-        Component(rdp, "RDP/VNC Proxy", "Go")
+        Component(rdp, "RDP/VNC Proxy", "Go", "Client VNC RFB 3.8 en fondation ; service proxy à venir (ADR-0071)")
         Component(tel, "Telnet/Serial-IPMI Proxy", "Go")
         Component(winrm, "WinRM Proxy", "Go")
         Component(db, "Database Proxy", "Go")
@@ -110,28 +110,26 @@ C4Component
 
     Container_Boundary(rec, "Enregistrement & Audit") {
         Component(sr, "Session Recorder", "Go", "Orchestration du cycle de vie d'un enregistrement")
-        Component(vr, "Video Recorder", "Go", "Capture pixel RDP/VNC")
+        Component(vr, "Video Recorder", "Go", "Persistance et replay de segments PNG ; producteur graphique à raccorder (ADR-0071)")
         Component(cr, "Command Recorder", "Go", "Capture texte SSH/DB/K8s")
         Component(aud, "Audit Service", "Go", "Journal immuable et signé")
-        Component(se, "Search Engine", "Go", "Indexation et recherche")
+        Component(se, "Recherche", "Go", "Dans le Command Recorder et le Session Broker, sans index (ADR-0080)")
         Component(rep, "Reporting Service", "Go", "Rapports de conformité")
     }
 
     Container(proxy, "Couche Proxy")
-    ContainerDb(minio, "MinIO")
-    ContainerDb(search, "OpenSearch")
+    ContainerDb(objects, "Stockage objet S3-compatible")
     Container(kafka, "Kafka")
 
     Rel(proxy, sr, "Flux clipboard / transfert fichiers / impression")
-    Rel(proxy, vr, "Flux pixel")
+    Rel(proxy, vr, "Flux pixel (producteur prévu par ADR-0069)")
     Rel(proxy, cr, "Flux commande")
     Rel(sr, aud, "Événements signés")
-    Rel(vr, minio, "Artefacts vidéo chiffrés")
-    Rel(cr, minio, "Logs commande chiffrés")
+    Rel(vr, objects, "Segments vidéo chiffrés")
+    Rel(cr, aud, "Événements de session")
     Rel(aud, kafka, "Streaming durable")
     Rel(kafka, se, "Indexation")
-    Rel(se, search, "Stockage index")
-    Rel(rep, search, "Agrégation")
+    Rel(rep, objects, "Agrégation")
 ```
 
 ## Conteneur « Gouvernance »
@@ -169,7 +167,7 @@ Ces deux conteneurs sont volontairement présentés sous forme de table plutôt 
 | Sécurité & Intelligence | Anomaly Detection / Risk Engine | Score de risque par règles, brique ML optionnelle |
 | Fédération d'identité | LDAP Connector | Auth/synchro LDAP/OpenLDAP |
 | Fédération d'identité | Active Directory Connector | Auth/synchro AD, Kerberos |
-| Fédération d'identité | Entra ID Connector | OIDC/SAML + Graph API |
+| Fédération d'identité | Entra ID Connector | Profil OIDC lié à un tenant (ADR-0079) ; ni SAML ni Graph API à ce jour |
 | Fédération d'identité | OpenID Connect Connector | OIDC/OAuth2 générique |
 | Fédération d'identité | SAML Connector | SAML 2.0 générique |
 | Fédération d'identité | SCIM Provisioning Service | Provisioning/déprovisioning automatique |
