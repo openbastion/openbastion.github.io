@@ -34,6 +34,8 @@ jobs:
           cache: npm
       - name: Installer les dépendances
         run: npm ci
+      - name: Auditer toutes les dépendances npm
+        run: npm run security:audit
       - name: Vérifier la conformité des pages Markdown
         run: npm run docs:check:markdown
       - name: Vérifier les liens internes
